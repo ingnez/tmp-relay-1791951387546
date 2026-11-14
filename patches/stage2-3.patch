@@ -1666,10 +1666,10 @@ index 77d119d..fa3aefe 100644
          : t`Message from ${peer}`;
 diff --git a/apps/mobile/components/press-scale.tsx b/apps/mobile/components/press-scale.tsx
 new file mode 100644
-index 0000000..2ee0d04
+index 0000000..3fdde2d
 --- /dev/null
 +++ b/apps/mobile/components/press-scale.tsx
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,58 @@
 +import type { ReactNode } from "react";
 +import type { PressableProps, StyleProp, ViewStyle } from "react-native";
 +import { Pressable } from "react-native";
@@ -1685,13 +1685,13 @@ index 0000000..2ee0d04
 +const PRESS_IN_MS = 90;
 +const RELEASE_SPRING = { duration: 320, dampingRatio: 0.75 } as const;
 +const RESTING_SCALE = 0.96;
-+const RESTING_OPACITY = 0.92;
 +
 +/**
 + * A press that answers back: the control shrinks a hair while held and springs back on release.
 + *
 + * Only for buttons the app draws itself. A SwiftUI row, a native button or a `GlassSurface` with
 + * its own system feedback already answers a touch, and a second spring under it reads as a stutter.
++ * Opacity stays out of the animation, so a disabled control keeps the dimming its own style sets.
 + */
 +export function PressScale({
 +  children,
@@ -1708,7 +1708,6 @@ index 0000000..2ee0d04
 +  const held = useSharedValue(0);
 +  const reduceMotion = useReducedMotion();
 +  const style = useAnimatedStyle(() => ({
-+    opacity: 1 - held.value * (1 - RESTING_OPACITY),
 +    transform: [{ scale: 1 - held.value * (1 - scaleTo) }],
 +  }));
 +  return (
@@ -1973,6 +1972,172 @@ index 91025cc..c5620a0 100644
            )}
          </GlassSurface>
        </View>
+diff --git a/apps/mobile/lib/artifacts-navigation.test.tsx b/apps/mobile/lib/artifacts-navigation.test.tsx
+index bd85003..6bfea9a 100644
+--- a/apps/mobile/lib/artifacts-navigation.test.tsx
++++ b/apps/mobile/lib/artifacts-navigation.test.tsx
+@@ -98,8 +98,6 @@ function renderHeader(platform: string) {
+     root.render(
+       <InboxHeader
+         initials="A"
+-        activityMode={false}
+-        toggleActivityMode={toggleActivityMode}
+         runCreateAction={runCreateAction}
+         columnInsets={{ left: 0, right: 0 }}
+       />,
+@@ -114,12 +112,9 @@ it.each(["android", "ios"])("omits Artifacts from the %s fallback header", (plat
+     Array.from(container.querySelectorAll("[aria-label]"), (node) =>
+       node.getAttribute("aria-label"),
+     ),
+-  ).toEqual(["Account", "Activity", "Search", "Create"]);
++  ).toEqual(["Account", "Create"]);
+   act(() => control("Account").click());
+-  act(() => control("Search").click());
+-  act(() => control("Activity").click());
+-  expect(header.push.mock.calls).toEqual([["/account"], ["/search"]]);
+-  expect(toggleActivityMode).toHaveBeenCalledOnce();
++  expect(header.push.mock.calls).toEqual([["/account"]]);
+ });
+ 
+ it.each(["android", "ios"])("creates from the %s menu", (platform) => {
+diff --git a/apps/mobile/lib/chat-model-picker.test.tsx b/apps/mobile/lib/chat-model-picker.test.tsx
+index 6b65ae9..648d1f0 100644
+--- a/apps/mobile/lib/chat-model-picker.test.tsx
++++ b/apps/mobile/lib/chat-model-picker.test.tsx
+@@ -972,7 +972,7 @@ describe("model role lists", () => {
+   const pinned = (index: number) => ({ ...model(index), credentialId: CREDENTIAL_ID });
+   const section = (title: string) =>
+     container.querySelector<HTMLElement>(`section[aria-label="${title}"]`)!;
+-  const rowTitles = (title = "Main model") =>
++  const rowTitles = (title = "日常帮助") =>
+     [...section(title).querySelectorAll<HTMLElement>("[data-menu]")].map((row) => row.dataset.menu);
+   const roleSaves = (role = "main") =>
+     mocks.rpc.mock.calls
+@@ -1008,9 +1008,9 @@ describe("model role lists", () => {
+   it("keeps the native menu outside the model picker's press target", async () => {
+     mocks.primary = model(1);
+     await renderModels();
+-    const menu = section("Main model").querySelector('[data-menu="Model 1"]')!;
++    const menu = section("日常帮助").querySelector('[data-menu="Model 1"]')!;
+     expect(menu.closest("button")).toBeNull();
+-    act(() => rowButton("Main model", "Model 1").click());
++    act(() => rowButton("日常帮助", "Model 1").click());
+     expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/model-picker" }));
+   });
+ 
+@@ -1020,7 +1020,7 @@ describe("model role lists", () => {
+     await renderModels();
+     expect(container.textContent).not.toContain("Active model");
+     expect(container.querySelector('button[aria-label="Provider"]')).toBeNull();
+-    const main = section("Main model");
++    const main = section("日常帮助");
+     expect([...main.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+       "1Model 1OpenRouter, Thinking: High",
+       "2Model 2OpenRouter",
+@@ -1038,14 +1038,14 @@ describe("model role lists", () => {
+     mocks.backups = [model(2)];
+     await renderModels();
+     expect(
+-      [...section("Main model").querySelectorAll("button")].map((button) => button.textContent),
++      [...section("日常帮助").querySelectorAll("button")].map((button) => button.textContent),
+     ).toEqual(["1Choose a model", "2Model 2OpenRouter", "Add fallback"]);
+   });
+ 
+   it("adds a fallback from the shared picker and saves it immediately", async () => {
+     mocks.primary = model(1);
+     await renderModels();
+-    act(() => rowButton("Main model", "Add fallback").click());
++    act(() => rowButton("日常帮助", "Add fallback").click());
+     expect(mocks.setOptions).toHaveBeenCalledWith({ title: "Add fallback" });
+     expect(pickerRows()).toHaveLength(10);
+     expect(mocks.setOptions.mock.calls.some(([options]) => options.headerSearchBarOptions)).toBe(
+@@ -1065,8 +1065,8 @@ describe("model role lists", () => {
+     mocks.primary = model(1);
+     mocks.backups = [model(2), model(3)];
+     await renderModels();
+-    act(() => rowButton("Main model", "Model 2").click());
+-    expect(mocks.setOptions).toHaveBeenCalledWith({ title: "Main model" });
++    act(() => rowButton("日常帮助", "Model 2").click());
++    expect(mocks.setOptions).toHaveBeenCalledWith({ title: "日常帮助" });
+     expect(
+       pickerRows()
+         .filter((row) => row.getAttribute("aria-selected") === "true")
+@@ -1085,7 +1085,7 @@ describe("model role lists", () => {
+     expect(ids("Model 1")).toEqual(["thinking", "moveDown", "manageModel", "manage", "remove"]);
+     expect(ids("Model 2")).toEqual(["moveUp", "moveDown", "manageModel", "manage", "remove"]);
+     expect(ids("Model 3")).toEqual(["moveUp", "manageModel", "manage", "remove"]);
+-    expect(rowButton("Main model", "Model 1").getAttribute("data-accessibility-actions")).toBe(
++    expect(rowButton("日常帮助", "Model 1").getAttribute("data-accessibility-actions")).toBe(
+       "Thinking: Default,Thinking: Low,Thinking: Medium,Thinking: High,Move down,Manage model,Manage provider,Remove",
+     );
+     await menuAction("Model 3", "moveUp");
+@@ -1148,7 +1148,7 @@ describe("model role lists", () => {
+     mocks.primary = model(1);
+     mocks.extraProviders = true;
+     await renderModels();
+-    act(() => rowButton("Main model", "Model 1").click());
++    act(() => rowButton("日常帮助", "Model 1").click());
+     expect([...container.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
+       "OpenRouter",
+     ]);
+@@ -1169,7 +1169,7 @@ describe("model role lists", () => {
+     });
+ 
+     act(() => mocks.back());
+-    act(() => rowButton("Main model", "Add fallback").click());
++    act(() => rowButton("日常帮助", "Add fallback").click());
+     act(() =>
+       pickerRows()
+         .find((row) => row.textContent?.startsWith("Google"))!
+@@ -1200,7 +1200,7 @@ describe("model role lists", () => {
+   it("reopens the empty main slot on the connection that became the main model", async () => {
+     mocks.connected = false;
+     await renderModels();
+-    act(() => rowButton("Main model", "Choose a model").click());
++    act(() => rowButton("日常帮助", "Choose a model").click());
+     act(() =>
+       pickerRows()
+         .find((row) => row.textContent?.startsWith("OpenRouter"))!
+@@ -1316,7 +1316,7 @@ describe("model role lists", () => {
+     mocks.backups = [model(3)];
+     await renderModels();
+     expect(mainLoads()).toBe(1);
+-    expect(container.textContent).not.toContain("Main model");
++    expect(container.textContent).not.toContain("日常帮助");
+     await act(async () => first.finish());
+     expect(mainLoads()).toBe(2);
+     expect(rowTitles()).toEqual(["Model 3"]);
+@@ -1338,7 +1338,7 @@ describe("model role lists", () => {
+   it("hides the list while loading and offers no manage action without a connection", async () => {
+     mocks.backups = new Promise(() => undefined);
+     await renderModels();
+-    expect(container.textContent).not.toContain("Main model");
++    expect(container.textContent).not.toContain("日常帮助");
+     leaveModels();
+     mocks.backups = [model(2)];
+     mocks.connected = false;
+@@ -1630,7 +1630,7 @@ describe("several connections for one provider", () => {
+     mocks.primary = model(1, CREDENTIAL_ID);
+     await renderModels();
+     act(() =>
+-      [...section("Main model").querySelectorAll("button")]
++      [...section("日常帮助").querySelectorAll("button")]
+         .find((button) => button.textContent === "Add fallback")!
+         .click(),
+     );
+@@ -1654,10 +1654,10 @@ describe("several connections for one provider", () => {
+     mocks.backups = [model(1, WORK_CREDENTIAL_ID)];
+     await renderModels();
+     expect(
+-      [...section("Main model").querySelectorAll("button")].map((button) => button.textContent),
++      [...section("日常帮助").querySelectorAll("button")].map((button) => button.textContent),
+     ).toEqual(["1Model 1OpenRouter", "2Model 1OpenRouter (Work)", "Add fallback"]);
+     expect(
+-      [...section("Main model").querySelectorAll('[role="button"]')].map((button) =>
++      [...section("日常帮助").querySelectorAll('[role="button"]')].map((button) =>
+         button.getAttribute("aria-label"),
+       ),
+     ).toEqual(["Model 1 (OpenRouter) options", "Model 1 (OpenRouter, Work) options"]);
 diff --git a/apps/mobile/lib/count-label.ts b/apps/mobile/lib/count-label.ts
 new file mode 100644
 index 0000000..8cae3d8
@@ -2007,14 +2172,76 @@ index 0000000..8cae3d8
 +  if (isChinese()) return `${formatCount(count)} 条与 ${peer} 的消息`;
 +  return count === 1 ? `1 message with ${peer}` : `${formatCount(count)} messages with ${peer}`;
 +}
+diff --git a/apps/mobile/lib/home-route.test.tsx b/apps/mobile/lib/home-route.test.tsx
+index 5f41845..24b3236 100644
+--- a/apps/mobile/lib/home-route.test.tsx
++++ b/apps/mobile/lib/home-route.test.tsx
+@@ -40,7 +40,6 @@ vi.mock("./native", () => ({
+   useThemedStyles: (factory: () => unknown) => factory(),
+ }));
+ 
+-const toggleActivityMode = vi.fn();
+ const runCreateAction = vi.fn();
+ 
+ function Inbox({ embedded = false }: { embedded?: boolean }) {
+@@ -49,8 +48,6 @@ function Inbox({ embedded = false }: { embedded?: boolean }) {
+     ready: true,
+     hasSession: true,
+     initials: "A",
+-    activityMode: false,
+-    toggleActivityMode,
+     runCreateAction,
+   });
+   return <p>{embedded ? "Embedded inbox" : "Compact inbox"}</p>;
+@@ -103,11 +100,12 @@ it.each([false, true])(
+         expect(
+           home.options.unstable_headerLeftItems().map((item: { label: string }) => item.label),
+         ).toEqual(["Account"]);
++        // One clean create button: activity and search live in the bar above the home indicator.
+         expect(
+           home.options
+             .unstable_headerRightItems()
+             .map((item: { accessibilityLabel: string }) => item.accessibilityLabel),
+-        ).toEqual(["Activity", "Search", "Create"]);
++        ).toEqual(["Create"]);
+       }
+     }
+   },
+@@ -122,13 +120,10 @@ it("leaves the navigation bar alone from the embedded inbox", () => {
+ it("wires the compact header items to their actions", () => {
+   act(() => root.render(<Inbox />));
+   const [account] = home.options.unstable_headerLeftItems();
+-  const [activity, search, create] = home.options.unstable_headerRightItems();
++  const [create] = home.options.unstable_headerRightItems();
+   account.onPress();
+-  search.onPress();
+-  activity.onPress();
+   for (const item of create.menu.items) item.onPress();
+-  expect(home.push.mock.calls).toEqual([["/account"], ["/search"]]);
+-  expect(toggleActivityMode).toHaveBeenCalledOnce();
++  expect(home.push.mock.calls).toEqual([["/account"]]);
+   expect(runCreateAction.mock.calls).toEqual([["bot"], ["group"], ["space"]]);
+ });
+ 
+diff --git a/apps/mobile/lib/inbox-render.test.tsx b/apps/mobile/lib/inbox-render.test.tsx
+index 831f98e..9d0c1f8 100644
+--- a/apps/mobile/lib/inbox-render.test.tsx
++++ b/apps/mobile/lib/inbox-render.test.tsx
+@@ -248,6 +248,8 @@ const callbacks = {
+   organizeGroup: action,
+   sharing: false,
+   snoozeChat: action,
++  mainBotId: null,
++  onSetMainBot: action,
+   spaces: [],
+   spaceBusy: false,
+   spaceRecoveryId: null,
 diff --git a/apps/mobile/lib/main-bot.ts b/apps/mobile/lib/main-bot.ts
 new file mode 100644
-index 0000000..1d27eda
+index 0000000..7a99a25
 --- /dev/null
 +++ b/apps/mobile/lib/main-bot.ts
-@@ -0,0 +1,64 @@
-+import * as SecureStore from "expo-secure-store";
-+
+@@ -0,0 +1,69 @@
 +/**
 + * The bot shown at the top of the home screen. Rakazo keeps a bot's pinned state on the server but
 + * has no "main bot", so this choice stays on the device, per account and Space.
@@ -2025,6 +2252,11 @@ index 0000000..1d27eda
 +
 +function notify(): void {
 +  for (const listener of listeners) listener();
++}
++
++/** SecureStore, loaded where it exists: tests and web hosts have no keychain. */
++async function store() {
++  return import("expo-secure-store");
 +}
 +
 +function keyFor(userId: string, spaceId: string): string {
@@ -2047,7 +2279,8 @@ index 0000000..1d27eda
 +  if (key === loadedKey) return mainBotId;
 +  loadedKey = key;
 +  try {
-+    mainBotId = await SecureStore.getItemAsync(key);
++    const secure = await store();
++    mainBotId = await secure.getItemAsync(key);
 +  } catch {
 +    mainBotId = null;
 +  }
@@ -2061,7 +2294,8 @@ index 0000000..1d27eda
 +  mainBotId = botId;
 +  notify();
 +  try {
-+    await SecureStore.setItemAsync(key, botId);
++    const secure = await store();
++    await secure.setItemAsync(key, botId);
 +  } catch {
 +    // SecureStore is unavailable on some hosts; the choice stays for this session.
 +  }
@@ -2105,14 +2339,34 @@ index 0000000..aea2f9d
 +    ? THIRD_PARTY_COMPATIBLE_NAME
 +    : name;
 +}
+diff --git a/apps/mobile/lib/model-settings.test.tsx b/apps/mobile/lib/model-settings.test.tsx
+index 0215443..bcc299a 100644
+--- a/apps/mobile/lib/model-settings.test.tsx
++++ b/apps/mobile/lib/model-settings.test.tsx
+@@ -548,14 +548,14 @@ it("moves bots off their own model onto the main model, keeping failed ones list
+     // An unreadable bot list hides only the bot group.
+     saved.failBotList = true;
+     await renderModels();
+-    expect(container.textContent).toContain("Main model");
++    expect(container.textContent).toContain("日常帮助");
+     expect(container.textContent).not.toContain("Bot models");
+     expect(container.textContent).not.toContain("Could not load model settings");
+     saved.failBotList = false;
+     // Without a main model there is no default to move bots onto.
+     saved.needsModel = true;
+     await renderModels();
+-    expect(container.textContent).toContain("Main model");
++    expect(container.textContent).toContain("日常帮助");
+     expect(container.textContent).not.toContain("Archie");
+     saved.needsModel = false;
+     await renderModels();
 diff --git a/apps/mobile/lib/scenario-models.ts b/apps/mobile/lib/scenario-models.ts
 new file mode 100644
-index 0000000..9316e5c
+index 0000000..613ae69
 --- /dev/null
 +++ b/apps/mobile/lib/scenario-models.ts
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,169 @@
 +import type { ThinkingLevel } from "@rakazo/contracts";
-+import * as SecureStore from "expo-secure-store";
 +
 +/**
 + * The scenario slots that belong to no server role: the server still knows main, approval and
@@ -2208,13 +2462,19 @@ index 0000000..9316e5c
 +  }
 +}
 +
++/** SecureStore, loaded where it exists: tests and web hosts have no keychain. */
++async function store() {
++  return import("expo-secure-store");
++}
++
 +/** Reads this account's and Space's slots once; a later call for the same pair reuses them. */
 +export async function loadScenarioModels(userId: string, spaceId: string): Promise<ScenarioModels> {
 +  const key = keyFor(userId, spaceId);
 +  if (key === storageKey) return state;
 +  storageKey = key;
 +  try {
-+    state = parse(await SecureStore.getItemAsync(key));
++    const secure = await store();
++    state = parse(await secure.getItemAsync(key));
 +  } catch {
 +    state = {};
 +  }
@@ -2236,8 +2496,9 @@ index 0000000..9316e5c
 +  storageKey = key;
 +  notify();
 +  try {
-+    if (Object.keys(next).length === 0) await SecureStore.deleteItemAsync(key);
-+    else await SecureStore.setItemAsync(key, JSON.stringify(next));
++    const secure = await store();
++    if (Object.keys(next).length === 0) await secure.deleteItemAsync(key);
++    else await secure.setItemAsync(key, JSON.stringify(next));
 +  } catch {
 +    // SecureStore is unavailable on some hosts; the choice stays for this session.
 +  }
