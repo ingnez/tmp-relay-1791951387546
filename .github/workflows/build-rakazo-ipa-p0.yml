@@ -1,0 +1,21 @@
+name: Rakazo IPA (P0 models UI)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash build-p0.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rakazo-p0-ipa
+          path: |
+            src/apps/mobile/ios/Rakazo-unsigned.ipa
+            src/apps/mobile/ios/xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 30
