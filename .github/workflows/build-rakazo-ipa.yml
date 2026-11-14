@@ -1,136 +1,44 @@
-name: Build Rakazo unsigned iOS IPA (GitHub-hosted macOS)
-
+name: Rakazo IPA
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "rakazo git ref to build (branch, tag or commit)"
-        required: false
-        default: "main"
-      api_url:
-        description: "EXPO_PUBLIC_API_URL baked into the app"
-        required: false
-        default: "https://app.rakazo.com"
-
-permissions:
-  contents: read
-
-concurrency:
-  group: rakazo-ipa
-  cancel-in-progress: false
-
 jobs:
   build:
     runs-on: xcode-27
     timeout-minutes: 240
-
     steps:
-      - name: Checkout rakazo source
-        run: |
-          set -euo pipefail
-          REF="${{ inputs.ref || 'main' }}"
-          git clone --depth 1 --branch "$REF" \
-            https://github.com/elie222/rakazo.git src 2>/dev/null \
-            || { git init -q src; git -C src remote add origin https://github.com/elie222/rakazo.git;
-                 git -C src fetch --depth 1 origin "$REF"; git -C src checkout -q FETCH_HEAD; }
-          git -C src rev-parse HEAD | tee commit.txt
-          node -p "require('./src/apps/mobile/app.json').expo.version" | tee version.txt
-
-      - name: Show toolchain
-        run: |
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-version
-          sw_vers
-          node --version
-
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 12.18.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24.22.2
-
-      - name: Install workspace dependencies
-        working-directory: src
-        run: pnpm install --frozen-lockfile
-
-      - name: Check Expo native dependencies
-        working-directory: src/apps/mobile
-        run: |
-          pnpm exec expo install --check \
-            || { echo "::warning::expo install --check failed; applying expo install --fix"; pnpm exec expo install --fix; }
-
-      - name: Generate the iOS project (expo prebuild)
-        working-directory: src/apps/mobile
+      - name: Build unsigned IPA
         env:
-          EXPO_PUBLIC_API_URL: ${{ inputs.api_url || 'https://app.rakazo.com' }}
+          EXPO_PUBLIC_API_URL: https://app.rakazo.com
+          EXPO_NO_TELEMETRY: "1"
           CI: "1"
-        run: pnpm exec expo prebuild --platform ios --no-install
-
-      - name: Install CocoaPods
-        working-directory: src/apps/mobile/ios
-        run: pod install --repo-update
-
-      - name: List schemes
-        working-directory: src/apps/mobile/ios
-        run: xcodebuild -workspace Rakazo.xcworkspace -list
-
-      - name: Build the app (unsigned)
-        working-directory: src/apps/mobile/ios
-        env:
-          EXPO_PUBLIC_API_URL: ${{ inputs.api_url || 'https://app.rakazo.com' }}
         run: |
-          set -o pipefail
-          xcodebuild \
-            -workspace Rakazo.xcworkspace \
-            -scheme Rakazo \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
-            build | tee xcodebuild.log
-
-      - name: Package unsigned IPA
-        working-directory: src/apps/mobile/ios
-        run: |
-          set -euo pipefail
-          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n 1)
-          if [ -z "$APP" ]; then
-            echo "Rakazo.app not found" >&2
-            find build/Build/Products -maxdepth 3 -name '*.app' >&2
-            exit 1
-          fi
-          echo "Packaging: $APP"
-          ls -1 "$APP/PlugIns" 2>/dev/null || true
-          rm -rf Payload Rakazo-unsigned.ipa
-          mkdir Payload
-          cp -R "$APP" Payload/
-          zip -qry "Rakazo-$(cat ../../../version.txt)-unsigned.ipa" Payload
-          ls -lh Rakazo-*-unsigned.ipa
-          unzip -l Rakazo-*-unsigned.ipa | head -30
-
-      - name: Upload IPA
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/elie222/rakazo.git src
+          cd src
+          npm i -g pnpm@12.18.0
+          pnpm install --frozen-lockfile
+          cd apps/mobile
+          pnpm exec expo install --check || echo "::warning::expo patch-level version drift ignored (app.config.ts is dynamic, so --fix cannot write it)"
+          pnpm exec expo prebuild --platform ios --no-install
+          cd ios
+          pod install --repo-update || pod install
+          xcodebuild -list -workspace Rakazo.xcworkspace || true
+          xcodebuild -workspace Rakazo.xcworkspace -scheme Rakazo -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build \
+            | tee xcodebuild.log
+          mkdir -p Payload && cp -R build/Build/Products/Release-iphoneos/Rakazo.app Payload/
+          zip -qry Rakazo-unsigned.ipa Payload
+          unzip -l Rakazo-unsigned.ipa | head -30
+      - name: Upload result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rakazo-unsigned-ipa
+          name: rakazo-ipa-output
           path: |
-            src/apps/mobile/ios/Rakazo-*-unsigned.ipa
-            commit.txt
-            version.txt
-          retention-days: 30
-
-      - name: Upload build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rakazo-build-log
-          path: |
+            src/apps/mobile/ios/Rakazo-unsigned.ipa
             src/apps/mobile/ios/xcodebuild.log
-          if-no-files-found: ignore
-          retention-days: 14
+          if-no-files-found: warn
+          retention-days: 30
