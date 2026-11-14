@@ -1,0 +1,225 @@
+diff --git a/apps/mobile/app/(settings)/model-connection.tsx b/apps/mobile/app/(settings)/model-connection.tsx
+index 9ac425f..da98f3e 100644
+--- a/apps/mobile/app/(settings)/model-connection.tsx
++++ b/apps/mobile/app/(settings)/model-connection.tsx
+@@ -22,7 +22,15 @@ import {
+   savedCompatibleModelIds,
+ } from "@rakazo/core";
+ import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
++import {
++  useCallback,
++  useContext,
++  useEffect,
++  useLayoutEffect,
++  useMemo,
++  useRef,
++  useState,
++} from "react";
+ import {
+   AccessibilityInfo,
+   ActivityIndicator,
+@@ -41,11 +49,13 @@ import { ConnectionModelList } from "../../components/connection-model-list";
+ import { DisclosureRow } from "../../components/model-connection-fields";
+ import { createModelsStyles } from "../../components/model-connection-styles";
+ import { NativeActionButton } from "../../components/native-action-button";
++import { CallKeyboardContext } from "../../lib/call-keyboard-context";
+ import type { MobileMe, MobileModel, MobileModelCredential } from "../../lib/mobile-types";
+ import {
+   MODEL_CONNECT_TIMEOUT_MS,
+   modelConnectionRequest,
+ } from "../../lib/model-connection-request";
++import { providerDisplayName } from "../../lib/model-provider-label";
+ import { native, useThemedStyles } from "../../lib/native";
+ import { ACCOUNT_SETTINGS, settingsRpc } from "../../lib/settings-target";
+ import { useListSearch } from "../../lib/use-list-search";
+@@ -61,6 +71,8 @@ type FeedbackAnchor = "probe" | "model" | "connection";
+ /** Connects or manages one provider for the model list that opened it. */
+ export default function ModelConnection() {
+   const styles = useThemedStyles(createModelsStyles);
++  const scrollRef = useRef<ScrollView>(null);
++  const rootAvoidsKeyboard = useContext(CallKeyboardContext);
+   const router = useRouter();
+   const navigation = useNavigation();
+   const { requestId = "" } = useLocalSearchParams<{ requestId?: string }>();
+@@ -241,11 +253,13 @@ export default function ModelConnection() {
+     }, [cancelInFlightWork, load]),
+   );
+ 
+-  const providerName = selected?.providerName ?? selected?.provider ?? "";
+   const endpointPreset =
+     provider === OPENAI_COMPATIBLE_PROVIDER_ID
+       ? matchCompatibleEndpointPreset(compatibleEndpointPresets(catalog), baseUrl)
+       : undefined;
++  const catalogProviderName = selected?.providerName ?? selected?.provider ?? "";
++  // Without a hosted preset this is a third-party server, which the app names as such.
++  const providerName = providerDisplayName(provider, catalogProviderName, Boolean(endpointPreset));
+   const selectedProviderLabel = credential
+     ? connectionDisplayName(credential, providerName)
+     : (endpointPreset?.name ?? providerName);
+@@ -447,6 +461,16 @@ export default function ModelConnection() {
+     setShowAdvanced((visible) => !visible);
+   }
+ 
++  /**
++   * The key form ends this page until the server has models to list, so its Save button would sit
++   * under the keyboard: bring the end of the form above it once the inset has settled.
++   */
++  function revealKeyForm() {
++    if (credential) return;
++    // The keyboard's inset lands while it animates in; scroll once it has.
++    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
++  }
++
+   const savedHeaderEndpointMatches = savedCompatibleEndpointMatches(baseUrl, credential?.baseUrl);
+   const visibleHeaderRows =
+     headerRows ??
+@@ -517,6 +541,7 @@ export default function ModelConnection() {
+             editable={!busy}
+             importantForAutofill="no"
+             onChangeText={updateApiKey}
++            onFocus={revealKeyForm}
+             placeholder={
+               credential?.hasKey
+                 ? t`Paste a replacement key`
+@@ -681,6 +706,7 @@ export default function ModelConnection() {
+                   editable={!busy}
+                   importantForAutofill="no"
+                   onChangeText={updateApiKey}
++                  onFocus={revealKeyForm}
+                   placeholder={credential?.hasKey ? t`Paste a replacement key` : t`sk-…`}
+                   placeholderTextColor={native.tertiaryLabel}
+                   secureTextEntry
+@@ -775,8 +801,10 @@ export default function ModelConnection() {
+   return (
+     <SafeAreaView edges={["bottom"]} style={styles.screen}>
+       <ScrollView
++        ref={scrollRef}
+         contentContainerStyle={styles.content}
+         contentInsetAdjustmentBehavior="automatic"
++        automaticallyAdjustKeyboardInsets={!rootAvoidsKeyboard}
+         keyboardDismissMode="on-drag"
+         keyboardShouldPersistTaps="handled"
+       >
+diff --git a/apps/mobile/app/(settings)/models.tsx b/apps/mobile/app/(settings)/models.tsx
+index 5353060..63e3e31 100644
+--- a/apps/mobile/app/(settings)/models.tsx
++++ b/apps/mobile/app/(settings)/models.tsx
+@@ -26,6 +26,7 @@ import type { ModelConnectionRequest } from "../../lib/model-connection-request"
+ import { closeModelConnection, openModelConnection } from "../../lib/model-connection-request";
+ import type { ModelPickerRequest } from "../../lib/model-picker-selection";
+ import { closeModelPicker, openModelPicker } from "../../lib/model-picker-selection";
++import { providerDisplayName } from "../../lib/model-provider-label";
+ import { native, useThemedStyles } from "../../lib/native";
+ import { queryClient, rpcQuery } from "../../lib/query";
+ import { settingsTarget } from "../../lib/settings-target";
+@@ -36,6 +37,19 @@ const noModels: MobileModel[] = [];
+ const noCredentials: MobileModelCredential[] = [];
+ const noBots: MobileBot[] = [];
+ 
++/**
++ * A server the person runs themselves heads the list: it is the entry people add by hand, and
++ * sorting by name would bury it among the O's of the hosted providers.
++ */
++function thirdPartyCompatibleFirst(providers: ConnectableProvider[]): ConnectableProvider[] {
++  const index = providers.findIndex(
++    (provider) => provider.id === OPENAI_COMPATIBLE_PROVIDER_ID && !provider.baseUrl,
++  );
++  if (index <= 0) return providers;
++  const [compatible] = providers.splice(index, 1);
++  return compatible ? [compatible, ...providers] : providers;
++}
++
+ /**
+  * The main and approval model lists; connecting a provider opens its own screen. Opened with a
+  * Space, it edits that Space's override instead of the account's.
+@@ -164,23 +178,25 @@ export default function Models() {
+       params: { credentialId: credential.id, modelId, ...(spaceId ? { spaceId } : {}) },
+     });
+ 
+-  /** Every provider, popular first, plus the hosted presets of the compatible one. */
++  /** Every provider: the third-party OpenAI-compatible one, then popular, then by name. */
+   const allProviders = useMemo(() => {
+     const grouped = new Map<string, ConnectableProvider>();
+     for (const entry of catalog) {
+       if (grouped.has(entry.provider)) continue;
+       grouped.set(entry.provider, {
+         id: entry.provider,
+-        name: entry.providerName ?? entry.provider,
++        name: providerDisplayName(entry.provider, entry.providerName ?? entry.provider),
+       });
+     }
+     const all = [...grouped.values()];
+     for (const preset of compatibleEndpointPresets(catalog))
+       all.push({ id: OPENAI_COMPATIBLE_PROVIDER_ID, name: preset.name, baseUrl: preset.baseUrl });
+-    return popularModelProvidersFirst(
+-      all,
+-      (provider) => provider.id,
+-      (provider) => provider.name,
++    return thirdPartyCompatibleFirst(
++      popularModelProvidersFirst(
++        all,
++        (provider) => provider.id,
++        (provider) => provider.name,
++      ),
+     );
+   }, [catalog]);
+ 
+diff --git a/apps/mobile/components/model-providers.tsx b/apps/mobile/components/model-providers.tsx
+index dbf8d46..f2bd317 100644
+--- a/apps/mobile/components/model-providers.tsx
++++ b/apps/mobile/components/model-providers.tsx
+@@ -9,6 +9,7 @@ import {
+ } from "@rakazo/contracts";
+ import { connectionModels } from "@rakazo/core";
+ import { Alert, Platform } from "react-native";
++import { providerDisplayName } from "../lib/model-provider-label";
+ import { RowMenu } from "./model-role-settings";
+ import { SettingsGroup, SettingsRow } from "./settings-group";
+ 
+@@ -31,10 +32,13 @@ export function ModelProviders({
+   const { t } = useLingui();
+   const modelCount = (count: number) => t`${plural(count, { one: "# model", other: "# models" })}`;
+   const providerName = (credential: ModelCredential) =>
+-    catalog.find(
+-      (entry) =>
+-        canonicalPiProviderId(entry.provider) === canonicalPiProviderId(credential.provider),
+-    )?.providerName ?? credential.provider;
++    providerDisplayName(
++      credential.provider,
++      catalog.find(
++        (entry) =>
++          canonicalPiProviderId(entry.provider) === canonicalPiProviderId(credential.provider),
++      )?.providerName ?? credential.provider,
++    );
+   const rows = credentials
+     .map((credential) => {
+       const provider = providerName(credential);
+diff --git a/apps/mobile/lib/model-provider-label.ts b/apps/mobile/lib/model-provider-label.ts
+new file mode 100644
+index 0000000..aea2f9d
+--- /dev/null
++++ b/apps/mobile/lib/model-provider-label.ts
+@@ -0,0 +1,22 @@
++import { OPENAI_COMPATIBLE_PROVIDER_ID } from "@rakazo/contracts";
++
++/**
++ * A third-party OpenAI-compatible server is the entry most people add by hand, so it is named for
++ * what it is rather than after the wire protocol. It stays Chinese in every locale, the way the
++ * provider names the catalog sends are not translated either.
++ */
++export const THIRD_PARTY_COMPATIBLE_NAME = "OpenAI 兼容（第三方）";
++
++/**
++ * The name the app shows for a provider. The plain compatible entry — no hosted endpoint preset —
++ * reads as the third-party one; a preset keeps the name the catalog gives it.
++ */
++export function providerDisplayName(
++  provider: string,
++  name: string,
++  hasEndpointPreset = false,
++): string {
++  return provider === OPENAI_COMPATIBLE_PROVIDER_ID && !hasEndpointPreset
++    ? THIRD_PARTY_COMPATIBLE_NAME
++    : name;
++}
