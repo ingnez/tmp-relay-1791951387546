@@ -1,0 +1,2339 @@
+diff --git a/apps/mobile/app.json b/apps/mobile/app.json
+index d0e8069..7b24e5a 100644
+--- a/apps/mobile/app.json
++++ b/apps/mobile/app.json
+@@ -174,7 +174,9 @@
+       "policy": "appVersion"
+     },
+     "updates": {
+-      "url": "https://u.expo.dev/07f7eb04-45e3-47fe-9374-99a2f991131e"
++      "enabled": false,
++      "checkAutomatically": "NEVER",
++      "fallbackToCacheTimeout": 0
+     }
+   }
+ }
+diff --git a/apps/mobile/app/(settings)/account.tsx b/apps/mobile/app/(settings)/account.tsx
+index a6a012f..4c2908a 100644
+--- a/apps/mobile/app/(settings)/account.tsx
++++ b/apps/mobile/app/(settings)/account.tsx
+@@ -46,6 +46,7 @@ export default function Account() {
+   const { focus } = useLocalSearchParams<{ focus?: string }>();
+   const [me, setMe] = useState<MobileMe | null>(null);
+   const account = accountDisplay(me ?? {}, t`Your account`);
++  const initials = account.initial ?? "?";
+   const [signingOut, setSigningOut] = useState(false);
+   // Held from the tap, so a second tap while the unsent-message check runs starts nothing.
+   const signOutStarted = useRef(false);
+@@ -218,12 +219,8 @@ export default function Account() {
+     }
+   }
+ 
++  // Connections have their own card above; these sit under the Bot heading.
+   const shortcuts: SettingsLink[] = [
+-    {
+-      title: t`Integrations`,
+-      href: "/integrations",
+-      icon: { ios: "puzzlepiece.extension", android: "extension-puzzle-outline" },
+-    },
+     {
+       title: t`Skills`,
+       href: "/skills",
+@@ -262,6 +259,7 @@ export default function Account() {
+             {usageModels}
+           </>
+         ) : null}
++        {/* One card holds who you are, what you have used and what the bot may open. */}
+         <SettingsGroup>
+           <SettingsRow
+             key="profile"
+@@ -269,35 +267,84 @@ export default function Account() {
+             chevron="right"
+             detail={me?.email && account.label !== me.email ? me.email : undefined}
+             disabled={signingOut}
++            leading={
++              <View
++                accessibilityElementsHidden
++                importantForAccessibility="no"
++                style={styles.avatar}
++              >
++                <Text style={styles.avatarInitial}>{initials}</Text>
++              </View>
++            }
+             prominent
+             title={account.label}
+             onPress={() => router.push("/profile")}
+           />
+           {focus !== "usage" ? usageBlock : null}
+           {focus !== "usage" ? creditsRow : null}
++          {settingsLink({
++            title: t`Vault`,
++            href: "/vault",
++            icon: { ios: "key", android: "key-outline" },
++          })}
+         </SettingsGroup>
+         {focus !== "usage" ? planGroups : null}
+ 
+-        <SettingsGroup>{shortcuts.map(settingsLink)}</SettingsGroup>
+-
++        {/* Connections stand on their own, the way one app screen is for them alone. */}
+         <SettingsGroup>
++          {settingsLink({
++            title: "连接应用",
++            href: "/integrations",
++            icon: { ios: "square.grid.2x2", android: "grid-outline" },
++          })}
++        </SettingsGroup>
++
++        <SettingsGroup label="Bot">
+           {[
+-            {
+-              title: t`General`,
+-              href: "/general",
+-              icon: { ios: "gearshape", android: "settings-outline" },
+-            } as const,
+             {
+               title: t`Models`,
+               href: "/models",
+               icon: { ios: "cpu", android: "hardware-chip-outline" },
+             } as const,
++            {
++              title: t`Memory`,
++              href: "/memory",
++              icon: { ios: "brain", android: { material: "brain" } },
++            } as const,
++            {
++              title: t`Voice`,
++              href: "/voice",
++              icon: { ios: "speaker.wave.2", android: "volume-high-outline" },
++            } as const,
++            ...(messagingEnabled
++              ? [
++                  {
++                    title: t`Messaging`,
++                    href: "/messaging",
++                    icon: { ios: "message", android: "chatbubble-outline" },
++                  } as const,
++                ]
++              : []),
++            ...shortcuts,
++            ...(me?.labsAvailable?.length
++              ? [
++                  {
++                    title: "实验功能",
++                    href: "/labs",
++                    icon: { ios: "flask", android: "flask-outline" },
++                  } as const,
++                ]
++              : []),
+           ].map(settingsLink)}
++        </SettingsGroup>
++
++        <SettingsGroup label="权限">
+           <ApprovalModeRow
+             key="approvals"
+             approvals={approvals}
+             disabled={signingOut}
+             leading={icon({ ios: "checkmark.shield", android: "shield-checkmark-outline" })}
++            title="权限"
+           />
+           {approvals.ruleCount ? (
+             <ApprovalRulesRow
+@@ -308,11 +355,16 @@ export default function Account() {
+               onPress={() => router.push("/approvals")}
+             />
+           ) : null}
+-          {settingsLink({
+-            title: t`Vault`,
+-            href: "/vault",
+-            icon: { ios: "key", android: "key-outline" },
+-          })}
++        </SettingsGroup>
++
++        <SettingsGroup label="设置">
++          {[
++            {
++              title: t`General`,
++              href: "/general",
++              icon: { ios: "gearshape", android: "settings-outline" },
++            } as const,
++          ].map(settingsLink)}
+           {me?.paymentWalletProvider
+             ? settingsLink({
+                 title: t`Wallet`,
+@@ -328,36 +380,6 @@ export default function Account() {
+               leading={icon({ ios: "dollarsign.circle", android: "cash-outline" })}
+             />
+           ) : null}
+-          {[
+-            {
+-              title: t`Memory`,
+-              href: "/memory",
+-              icon: { ios: "brain", android: { material: "brain" } },
+-            } as const,
+-            {
+-              title: t`Voice`,
+-              href: "/voice",
+-              icon: { ios: "speaker.wave.2", android: "volume-high-outline" },
+-            } as const,
+-            ...(messagingEnabled
+-              ? [
+-                  {
+-                    title: t`Messaging`,
+-                    href: "/messaging",
+-                    icon: { ios: "message", android: "chatbubble-outline" },
+-                  } as const,
+-                ]
+-              : []),
+-            ...(me?.labsAvailable?.length
+-              ? [
+-                  {
+-                    title: t`Labs`,
+-                    href: "/labs",
+-                    icon: { ios: "flask", android: "flask-outline" },
+-                  } as const,
+-                ]
+-              : []),
+-          ].map(settingsLink)}
+         </SettingsGroup>
+ 
+         <SettingsGroup>
+@@ -439,6 +461,19 @@ export default function Account() {
+ function createAccountStyles() {
+   return StyleSheet.create({
+     ...createSettingsPageStyles(),
++    avatar: {
++      width: 44,
++      height: 44,
++      borderRadius: 22,
++      alignItems: "center",
++      justifyContent: "center",
++      backgroundColor: native.fillPressed,
++    },
++    avatarInitial: {
++      color: native.label,
++      fontSize: 17,
++      fontWeight: "600",
++    },
+     about: {
+       alignItems: "center",
+       gap: 16,
+diff --git a/apps/mobile/app/(settings)/model-connection.tsx b/apps/mobile/app/(settings)/model-connection.tsx
+index 9ac425f..b517d4a 100644
+--- a/apps/mobile/app/(settings)/model-connection.tsx
++++ b/apps/mobile/app/(settings)/model-connection.tsx
+@@ -4,6 +4,8 @@ import type { ModelApiProtocol, ModelHeaderRow, ThinkingLevel } from "@rakazo/co
+ import {
+   compatibleEndpointPresets,
+   connectionDisplayName,
++  MAX_ENABLED_MODEL_IDS,
++  MAX_MODEL_CONNECTION_LABEL,
+   matchCompatibleEndpointPreset,
+   modelHeadersInput,
+   modelRoutingForm,
+@@ -22,7 +24,15 @@ import {
+   savedCompatibleModelIds,
+ } from "@rakazo/core";
+ import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
++import {
++  useCallback,
++  useContext,
++  useEffect,
++  useLayoutEffect,
++  useMemo,
++  useRef,
++  useState,
++} from "react";
+ import {
+   AccessibilityInfo,
+   ActivityIndicator,
+@@ -41,11 +51,13 @@ import { ConnectionModelList } from "../../components/connection-model-list";
+ import { DisclosureRow } from "../../components/model-connection-fields";
+ import { createModelsStyles } from "../../components/model-connection-styles";
+ import { NativeActionButton } from "../../components/native-action-button";
++import { CallKeyboardContext } from "../../lib/call-keyboard-context";
+ import type { MobileMe, MobileModel, MobileModelCredential } from "../../lib/mobile-types";
+ import {
+   MODEL_CONNECT_TIMEOUT_MS,
+   modelConnectionRequest,
+ } from "../../lib/model-connection-request";
++import { providerDisplayName } from "../../lib/model-provider-label";
+ import { native, useThemedStyles } from "../../lib/native";
+ import { ACCOUNT_SETTINGS, settingsRpc } from "../../lib/settings-target";
+ import { useListSearch } from "../../lib/use-list-search";
+@@ -61,6 +73,8 @@ type FeedbackAnchor = "probe" | "model" | "connection";
+ /** Connects or manages one provider for the model list that opened it. */
+ export default function ModelConnection() {
+   const styles = useThemedStyles(createModelsStyles);
++  const scrollRef = useRef<ScrollView>(null);
++  const rootAvoidsKeyboard = useContext(CallKeyboardContext);
+   const router = useRouter();
+   const navigation = useNavigation();
+   const { requestId = "" } = useLocalSearchParams<{ requestId?: string }>();
+@@ -99,6 +113,9 @@ export default function ModelConnection() {
+   const [pending, setPending] = useState<"connect" | "disconnect" | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   const [savedNotice, setSavedNotice] = useState<string | null>(null);
++  // The name this connection goes by in lists; a remark keeps several relays apart.
++  const [alias, setAlias] = useState("");
++  const [aliasPending, setAliasPending] = useState(false);
+ 
+   const meRef = useRef<MobileMe | null>(null);
+   meRef.current = me;
+@@ -178,6 +195,11 @@ export default function ModelConnection() {
+   const modelsForProvider = catalog.filter((entry) => entry.provider === provider);
+   const selected = modelsForProvider.find((entry) => entry.id === modelId) ?? modelsForProvider[0];
+   const credential = credentials.find((entry) => entry.id === credentialId);
++
++  // A saved connection's remark follows the server's copy, including after a rename on the list.
++  useEffect(() => {
++    setAlias(credential?.label ?? "");
++  }, [credential?.id, credential?.label]);
+   const {
+     oauth,
+     pasteCode,
+@@ -241,11 +263,13 @@ export default function ModelConnection() {
+     }, [cancelInFlightWork, load]),
+   );
+ 
+-  const providerName = selected?.providerName ?? selected?.provider ?? "";
+   const endpointPreset =
+     provider === OPENAI_COMPATIBLE_PROVIDER_ID
+       ? matchCompatibleEndpointPreset(compatibleEndpointPresets(catalog), baseUrl)
+       : undefined;
++  const catalogProviderName = selected?.providerName ?? selected?.provider ?? "";
++  // Without a hosted preset this is a third-party server, which the app names as such.
++  const providerName = providerDisplayName(provider, catalogProviderName, Boolean(endpointPreset));
+   const selectedProviderLabel = credential
+     ? connectionDisplayName(credential, providerName)
+     : (endpointPreset?.name ?? providerName);
+@@ -316,17 +340,7 @@ export default function ModelConnection() {
+     await modelProbe.probe({
+       baseUrl,
+       apiKey,
+-      request: (input) =>
+-        rpc(
+-          "models/probeOpenAiCompatible",
+-          {
+-            ...input,
+-            apiProtocol,
+-            headers: modelHeadersInput(headerRows),
+-            credentialId: credential?.id,
+-          },
+-          { timeoutMs: MODEL_CONNECT_TIMEOUT_MS },
+-        ),
++      request: (input) => probeEndpointModels(input),
+       onSuccess: (models) => {
+         setModelId(modelId.trim() || models[0] || "");
+         publishFeedback("probe", {
+@@ -345,6 +359,49 @@ export default function ModelConnection() {
+     });
+   }
+ 
++  /** The models this endpoint serves; the form's own key and headers go with the request. */
++  async function probeEndpointModels(input: {
++    baseUrl: string;
++    apiKey?: string;
++  }): Promise<{ models: string[] }> {
++    return rpc(
++      "models/probeOpenAiCompatible",
++      {
++        ...input,
++        apiProtocol,
++        headers: modelHeadersInput(headerRows),
++        credentialId: credential?.id,
++      },
++      { timeoutMs: MODEL_CONNECT_TIMEOUT_MS },
++    );
++  }
++
++  /**
++   * Names this connection, so several third-party relays are told apart: without it every one of
++   * them reads as the same provider.
++   */
++  async function saveAlias() {
++    if (!credential) return;
++    const label = alias.trim().slice(0, MAX_MODEL_CONNECTION_LABEL);
++    // A cleared field would be an empty name, which the server refuses; keep the old one.
++    if (!label) {
++      setAlias(credential.label.trim());
++      return;
++    }
++    if (label === credential.label.trim()) return;
++    Keyboard.dismiss();
++    setAliasPending(true);
++    try {
++      await rpc("models/rename", { credentialId: credential.id, label });
++      await load({ modelId });
++      publishFeedback("connection", { notice: t`Saved.` });
++    } catch (err) {
++      publishFeedback("connection", { error: errorText(err, t`Could not update name`) });
++    } finally {
++      setAliasPending(false);
++    }
++  }
++
+   async function disconnectCredential() {
+     if (!selected || !credential) return;
+     cancelOAuth();
+@@ -367,29 +424,55 @@ export default function ModelConnection() {
+ 
+   async function connectKey() {
+     if (!selected) return;
+-    const connect = modelConnectRequest({
+-      form: {
+-        apiKey,
+-        modelId,
+-        enabledModelIds,
+-        baseUrl,
+-        apiProtocol,
+-        headerRows,
+-        thinkingLevel,
+-        accountId,
+-        gatewayId,
+-      },
+-      selected,
+-      credential,
+-      credentialId: credentialIdRef.current,
+-      makeDefault: { makeDefault, scope: target.scope },
+-    });
+-    if (connect.status === "incomplete") return;
+     Keyboard.dismiss();
+     clearFeedback();
+-    const { savingWithoutKey, activeModelId } = connect;
+     setPending("connect");
+     try {
++      // A third-party server is connected once, not model by model: a save that has no model list
++      // yet asks the endpoint what it serves and enables every model it names. A list on screen
++      // is the person's own choice and is saved as it stands.
++      let saveModelId = modelId;
++      let saveModelIds = enabledModelIds;
++      if (isOpenAiCompatible && enabledModelIds.length === 0) {
++        try {
++          const discovered = (await probeEndpointModels({ baseUrl, apiKey })).models;
++          if (discovered.length) {
++            saveModelIds = discovered.slice(0, MAX_ENABLED_MODEL_IDS);
++            saveModelId = saveModelId.trim() || (saveModelIds[0] ?? "");
++          } else if (!saveModelId.trim()) {
++            // Nothing to import and no model named: there is nothing to connect yet.
++            publishFeedback("connection", { error: t`Server found. Enter a model name.` });
++            return;
++          }
++        } catch (err) {
++          // A server that cannot list its models can still be saved with a typed model id.
++          if (!saveModelId.trim()) {
++            publishFeedback("connection", {
++              error: errorText(err, t`Could not reach this model server`),
++            });
++            return;
++          }
++        }
++      }
++      const connect = modelConnectRequest({
++        form: {
++          apiKey,
++          modelId: saveModelId,
++          enabledModelIds: saveModelIds,
++          baseUrl,
++          apiProtocol,
++          headerRows,
++          thinkingLevel,
++          accountId,
++          gatewayId,
++        },
++        selected,
++        credential,
++        credentialId: credentialIdRef.current,
++        makeDefault: { makeDefault, scope: target.scope },
++      });
++      if (connect.status === "incomplete") return;
++      const { savingWithoutKey, activeModelId } = connect;
+       const saved = await rpc("models/connect", connect.input, {
+         timeoutMs: MODEL_CONNECT_TIMEOUT_MS,
+       });
+@@ -447,6 +530,16 @@ export default function ModelConnection() {
+     setShowAdvanced((visible) => !visible);
+   }
+ 
++  /**
++   * The key form ends this page until the server has models to list, so its Save button would sit
++   * under the keyboard: bring the end of the form above it once the inset has settled.
++   */
++  function revealKeyForm() {
++    if (credential) return;
++    // The keyboard's inset lands while it animates in; scroll once it has.
++    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
++  }
++
+   const savedHeaderEndpointMatches = savedCompatibleEndpointMatches(baseUrl, credential?.baseUrl);
+   const visibleHeaderRows =
+     headerRows ??
+@@ -517,6 +610,7 @@ export default function ModelConnection() {
+             editable={!busy}
+             importantForAutofill="no"
+             onChangeText={updateApiKey}
++            onFocus={revealKeyForm}
+             placeholder={
+               credential?.hasKey
+                 ? t`Paste a replacement key`
+@@ -681,6 +775,7 @@ export default function ModelConnection() {
+                   editable={!busy}
+                   importantForAutofill="no"
+                   onChangeText={updateApiKey}
++                  onFocus={revealKeyForm}
+                   placeholder={credential?.hasKey ? t`Paste a replacement key` : t`sk-…`}
+                   placeholderTextColor={native.tertiaryLabel}
+                   secureTextEntry
+@@ -720,6 +815,31 @@ export default function ModelConnection() {
+       </>
+     ) : null;
+ 
++  /** The remark this connection is listed under, editable on the connection itself. */
++  const aliasSection = credential ? (
++    <View style={styles.keySection}>
++      <Text style={styles.sectionTitle}>备注名称</Text>
++      <TextInput
++        accessibilityLabel="备注名称"
++        autoCapitalize="none"
++        autoCorrect={false}
++        editable={!busy && !aliasPending}
++        maxLength={MAX_MODEL_CONNECTION_LABEL}
++        onChangeText={setAlias}
++        onEndEditing={() => void saveAlias()}
++        onSubmitEditing={() => void saveAlias()}
++        placeholder={providerName}
++        placeholderTextColor={native.tertiaryLabel}
++        returnKeyType="done"
++        style={styles.keyInput}
++        value={alias}
++      />
++      <Text style={styles.secondary}>
++        用来区分多个第三方中转站，列表与选择器都显示这个名字。
++      </Text>
++    </View>
++  ) : null;
++
+   const connectedStatusRow = credential ? (
+     <View style={styles.statusRow}>
+       <View style={styles.providerCopy}>
+@@ -775,8 +895,10 @@ export default function ModelConnection() {
+   return (
+     <SafeAreaView edges={["bottom"]} style={styles.screen}>
+       <ScrollView
++        ref={scrollRef}
+         contentContainerStyle={styles.content}
+         contentInsetAdjustmentBehavior="automatic"
++        automaticallyAdjustKeyboardInsets={!rootAvoidsKeyboard}
+         keyboardDismissMode="on-drag"
+         keyboardShouldPersistTaps="handled"
+       >
+@@ -786,12 +908,14 @@ export default function ModelConnection() {
+               {compatConfig}
+               {compatKeySection}
+               {feedbackAnchor === "probe" ? null : feedback}
++              {aliasSection}
+               {connectedStatusRow}
+               {modelList}
+             </>
+           ) : credential ? (
+             <>
+               {provider === me?.hostCredentialProvider ? serverCredentialsNote : null}
++              {aliasSection}
+               {connectedStatusRow}
+               {catalogConnectionControls}
+               {feedbackAnchor === "connection" ? feedback : null}
+diff --git a/apps/mobile/app/(settings)/models.tsx b/apps/mobile/app/(settings)/models.tsx
+index 5353060..49ee1cc 100644
+--- a/apps/mobile/app/(settings)/models.tsx
++++ b/apps/mobile/app/(settings)/models.tsx
+@@ -17,6 +17,7 @@ import { LoadFailure } from "../../components/load-failure";
+ import { ModelProviders } from "../../components/model-providers";
+ import type { ConnectableProvider, ModelConnectIntent } from "../../components/model-role-settings";
+ import { ModelRoleSettings } from "../../components/model-role-settings";
++import { ScenarioModelSlots } from "../../components/scenario-model-slots";
+ import { SpaceBotsModel } from "../../components/space-bots-model";
+ // Connections belong to the account, so renaming and removing them go to the selected Space.
+ import { rpc } from "../../lib/api";
+@@ -26,6 +27,7 @@ import type { ModelConnectionRequest } from "../../lib/model-connection-request"
+ import { closeModelConnection, openModelConnection } from "../../lib/model-connection-request";
+ import type { ModelPickerRequest } from "../../lib/model-picker-selection";
+ import { closeModelPicker, openModelPicker } from "../../lib/model-picker-selection";
++import { providerDisplayName } from "../../lib/model-provider-label";
+ import { native, useThemedStyles } from "../../lib/native";
+ import { queryClient, rpcQuery } from "../../lib/query";
+ import { settingsTarget } from "../../lib/settings-target";
+@@ -36,6 +38,19 @@ const noModels: MobileModel[] = [];
+ const noCredentials: MobileModelCredential[] = [];
+ const noBots: MobileBot[] = [];
+ 
++/**
++ * A server the person runs themselves heads the list: it is the entry people add by hand, and
++ * sorting by name would bury it among the O's of the hosted providers.
++ */
++function thirdPartyCompatibleFirst(providers: ConnectableProvider[]): ConnectableProvider[] {
++  const index = providers.findIndex(
++    (provider) => provider.id === OPENAI_COMPATIBLE_PROVIDER_ID && !provider.baseUrl,
++  );
++  if (index <= 0) return providers;
++  const [compatible] = providers.splice(index, 1);
++  return compatible ? [compatible, ...providers] : providers;
++}
++
+ /**
+  * The main and approval model lists; connecting a provider opens its own screen. Opened with a
+  * Space, it edits that Space's override instead of the account's.
+@@ -164,23 +179,25 @@ export default function Models() {
+       params: { credentialId: credential.id, modelId, ...(spaceId ? { spaceId } : {}) },
+     });
+ 
+-  /** Every provider, popular first, plus the hosted presets of the compatible one. */
++  /** Every provider: the third-party OpenAI-compatible one, then popular, then by name. */
+   const allProviders = useMemo(() => {
+     const grouped = new Map<string, ConnectableProvider>();
+     for (const entry of catalog) {
+       if (grouped.has(entry.provider)) continue;
+       grouped.set(entry.provider, {
+         id: entry.provider,
+-        name: entry.providerName ?? entry.provider,
++        name: providerDisplayName(entry.provider, entry.providerName ?? entry.provider),
+       });
+     }
+     const all = [...grouped.values()];
+     for (const preset of compatibleEndpointPresets(catalog))
+       all.push({ id: OPENAI_COMPATIBLE_PROVIDER_ID, name: preset.name, baseUrl: preset.baseUrl });
+-    return popularModelProvidersFirst(
+-      all,
+-      (provider) => provider.id,
+-      (provider) => provider.name,
++    return thirdPartyCompatibleFirst(
++      popularModelProvidersFirst(
++        all,
++        (provider) => provider.id,
++        (provider) => provider.name,
++      ),
+     );
+   }, [catalog]);
+ 
+@@ -287,10 +304,17 @@ export default function Models() {
+             <ModelRoleSettings
+               {...shared}
+               modelRole="main"
+-              title={t`Main model`}
++              title="日常帮助"
+               defaultLabel={t`Choose a model`}
+               onChanged={() => void load()}
+             />
++            <ScenarioModelSlots
++              catalog={catalog}
++              credentials={credentials}
++              userId={shared.userId}
++              spaceId={shared.spaceId}
++              openPicker={shared.openPicker}
++            />
+             {me.needsModel ? null : (
+               <SpaceBotsModel bots={bots} spaceId={spaceId} onSwitched={() => load()} />
+             )}
+diff --git a/apps/mobile/app/index.tsx b/apps/mobile/app/index.tsx
+index 0a5db83..e4fed80 100644
+--- a/apps/mobile/app/index.tsx
++++ b/apps/mobile/app/index.tsx
+@@ -27,7 +27,9 @@ import {
+ } from "react-native";
+ import { useSafeAreaInsets } from "react-native-safe-area-context";
+ import { BotOrganizeModal } from "../components/bot-organize-modal";
++import { HomeBottomBar, HOME_BOTTOM_BAR_HEIGHT } from "../components/home-bottom-bar";
+ import { HomeErrorState } from "../components/home-error-state";
++import { HomeHero } from "../components/home-hero";
+ import { createHomeStyles } from "../components/home-styles";
+ import { ActivitySection } from "../components/inbox-activity";
+ import { InboxHeader } from "../components/inbox-header";
+@@ -70,6 +72,13 @@ import {
+ import { applyUnreadOverrides, withoutArchiving } from "../lib/inbox-swipe";
+ import { mobileLogoAvatarActivity } from "../lib/logo-avatar-activity";
+ import type { MobileBot, MobileGroup } from "../lib/mobile-types";
++import {
++  getMainBotId,
++  loadMainBot,
++  resolveMainBot,
++  setMainBot,
++  subscribeMainBot,
++} from "../lib/main-bot";
+ import { native, useThemedStyles } from "../lib/native";
+ import { iosAtLeast } from "../lib/native-controls";
+ import {
+@@ -198,10 +207,18 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+   const [spaceBusy, setSpaceBusy] = useState(false);
+   const [spaceRecoveryId, setSpaceRecoveryId] = useState<string | null>(null);
+   const userId = me?.userId;
++  // The bot the home screen centres: chosen by long press, or the first chat on this device.
++  const mainBotId = useSyncExternalStore(subscribeMainBot, getMainBotId, getMainBotId);
++  const spaceIdForMainBot = me?.spaceId;
+   const { collapsed, toggleCollapsed, loaded: collapsedLoaded } = useCollapsedSections(userId);
+   // Collapsed sections and the view load before the inbox first renders, so neither jumps on launch.
+   const ready = sessionLoaded && collapsedLoaded && activityModeLoaded;
+ 
++  useEffect(() => {
++    if (!userId || !spaceIdForMainBot) return;
++    void loadMainBot(userId, spaceIdForMainBot);
++  }, [userId, spaceIdForMainBot]);
++
+   useEffect(() => {
+     void loadActivityMode().then((on) => {
+       setActivityMode(on);
+@@ -318,6 +335,13 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+       withoutArchiving("group", applyUnreadOverrides("group", groups, unreadOverrides), archiving),
+     [groups, unreadOverrides, archiving],
+   );
++  // The main bot is shown once, as the hero above the list.
++  const heroBot = onShareSelect || loadFailure ? undefined : resolveMainBot(visible, mainBotId);
++  const listedBots = useMemo(
++    () =>
++      heroBot === undefined ? visible : visible.filter((bot) => bot.id !== heroBot.id),
++    [visible, heroBot],
++  );
+   const shownSpaces = useMemo(
+     () =>
+       archiving.size === 0
+@@ -334,7 +358,7 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+       shownSpaces.length > 0
+         ? shownSpaces.map((space) =>
+             space.id === me?.spaceId
+-              ? { ...space, bots: visible, groups: visibleGroups, botSections }
++              ? { ...space, bots: listedBots, groups: visibleGroups, botSections }
+               : space,
+           )
+         : me
+@@ -344,15 +368,23 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+                 name: t`Personal`,
+                 isDefault: true,
+                 hasContent: true,
+-                bots: visible,
++                bots: listedBots,
+                 groups: visibleGroups,
+                 botSections,
+               },
+             ]
+           : [],
+-    [shownSpaces, me, visible, visibleGroups, botSections, t, locale],
++    [shownSpaces, me, listedBots, visibleGroups, botSections, t, locale],
++  );
++  // Search still finds the main bot, which the list itself shows as the hero.
++  const searchSpaces = useMemo(
++    () =>
++      inboxSpaces.map((space) =>
++        space.id === me?.spaceId ? { ...space, bots: visible } : space,
++      ),
++    [inboxSpaces, me?.spaceId, visible],
+   );
+-  usePublishSearchInbox(inboxSpaces, me !== null);
++  usePublishSearchInbox(searchSpaces, me !== null);
+   const snoozeNow = useSnoozeClock(
+     inboxSpaces.flatMap((space) => [...space.bots, ...space.groups]),
+   );
+@@ -378,7 +410,7 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+     // Android pins sit above the list; iOS keeps rows with native swipe and context menus.
+     const otherSpaces = shownSpaces.filter((space) => space.id !== me?.spaceId);
+     const pinned: PinnedChat[] = [
+-      ...[...visible, ...otherSpaces.flatMap((space) => space.bots)]
++      ...[...listedBots, ...otherSpaces.flatMap((space) => space.bots)]
+         .filter((bot) => bot.pinned && !chatSnoozed(bot, snoozeNow))
+         .map((bot) => ({ kind: "bot" as const, bot })),
+       ...[...visibleGroups, ...otherSpaces.flatMap((space) => space.groups)]
+@@ -400,17 +432,20 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+     collapsed,
+     me?.spaceId,
+     shownSpaces,
+-    visible,
++    listedBots,
+     visibleGroups,
+     locale,
+     onShareSelect,
+     snoozeNow,
+   ]);
+-  // Snoozed chats stay off the icon until they wake.
++  // Snoozed chats stay off the icon until they wake. The hero's bot counts too, though it is
++  // drawn above the list rather than as a row.
+   const badgeCount = me
+     ? unreadChatCount(
+         inboxSpaces.map((space) => ({
+-          bots: space.bots.filter((bot) => !chatSnoozed(bot, snoozeNow)),
++          bots: (space.id === me.spaceId ? visible : space.bots).filter(
++            (bot) => !chatSnoozed(bot, snoozeNow),
++          ),
+           groups: space.groups.filter((group) => !chatSnoozed(group, snoozeNow)),
+         })),
+       )
+@@ -472,7 +507,7 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+     listRef,
+     // The Liquid Glass header floats over the list; the older header sits above it.
+     topInset: nativeHeader ? headerHeight : 0,
+-    bottomInset: contentBottomInset,
++    bottomInset: contentBottomInset + (embedded || onShareSelect ? 0 : HOME_BOTTOM_BAR_HEIGHT),
+   });
+   const router = useRouter();
+   const pathname = usePathname();
+@@ -658,8 +693,6 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+     ready,
+     hasSession,
+     initials,
+-    activityMode,
+-    toggleActivityMode,
+     runCreateAction,
+     headerTitle,
+   });
+@@ -674,6 +707,15 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+     },
+     [openChat, onShareSelect],
+   );
++  const setChatAsMain = useCallback(
++    (bot: MobileBot | SpaceBot) => {
++      const space = bot.spaceId ?? me?.spaceId;
++      if (!userId || !space) return;
++      hapticSelection();
++      void setMainBot(userId, space, bot.id);
++    },
++    [me?.spaceId, userId],
++  );
+   const openGroup = useCallback(
+     (group: MobileGroup | SpaceGroup) => {
+       if (spaceActionRef.current.busy || spaceActionRef.current.recoveryId) return;
+@@ -751,6 +793,8 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+     sharing: !!onShareSelect,
+     spaces: spaceSections,
+     toggleCollapsed,
++    mainBotId: heroBot?.id ?? mainBotId,
++    onSetMainBot: setChatAsMain,
+   });
+ 
+   if (!ready) {
+@@ -770,9 +814,11 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+   const activityView = !onShareSelect && activityMode && Boolean(userId);
+   const showActivity = activityView && !showLoadFailure;
+   const rows = activityView || showLoadFailure ? [] : listData;
+-  const hasListHeader = Boolean(inlineError || spaceRecoveryId || showActivity);
++  const hero = !activityView && !showLoadFailure && !onShareSelect ? heroBot : undefined;
++  const hasListHeader = Boolean(inlineError || spaceRecoveryId || showActivity || hero);
+   const listHeader = (
+     <>
++      {hero ? <HomeHero bot={hero} onOpen={openBot} /> : null}
+       {inlineError ? <Text style={styles.error}>{inlineError}</Text> : null}
+       {spaceRecoveryId ? (
+         <Pressable
+@@ -830,6 +876,10 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+   const refreshInbox = async () => {
+     await Promise.all([refreshBots(), loadActivity()]);
+   };
++  // Beside a chat and in the share picker the bar has nothing of its own to open.
++  const showBottomBar = !embedded && !onShareSelect && !showLoadFailure;
++  // The bar floats over the list, so the last row keeps clear of it and of the safe area.
++  const bottomBarInset = showBottomBar ? HOME_BOTTOM_BAR_HEIGHT + insets.bottom : 0;
+ 
+   return (
+     <View style={styles.screen}>
+@@ -837,8 +887,6 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+         <InboxHeader
+           embedded={embedded}
+           initials={initials}
+-          activityMode={activityMode}
+-          toggleActivityMode={toggleActivityMode}
+           runCreateAction={runCreateAction}
+           columnInsets={columnInsets}
+           title={headerTitle?.()}
+@@ -871,6 +919,7 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+                   onRefresh={refreshInbox}
+                   signals={jumpSignals}
+                   showJumpPills={!onShareSelect && !refreshing && !inboxHasNoChats(rows)}
++                  bottomInset={bottomBarInset}
+                 />
+               ) : (
+                 <FlatList<InboxItem>
+@@ -887,7 +936,11 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+                   indicatorStyle={appearance === "dark" ? "white" : "black"}
+                   contentContainerStyle={[
+                     styles.list,
+-                    { paddingLeft: columnInsets.left, paddingRight: columnInsets.right },
++                    {
++                      paddingLeft: columnInsets.left,
++                      paddingRight: columnInsets.right,
++                      paddingBottom: showBottomBar ? bottomBarInset + 16 : undefined,
++                    },
+                   ]}
+                   contentInsetAdjustmentBehavior="automatic"
+                   refreshControl={
+@@ -915,6 +968,14 @@ function Home({ embedded, onSelectSpace, onShareSelect }: InboxPaneProps & { emb
+           </View>
+         </CompactRowsContext.Provider>
+       </SelectedChatContext.Provider>
++      {showBottomBar ? (
++        <HomeBottomBar
++          activityMode={activityMode}
++          onToggleActivity={toggleActivityMode}
++          onOpenIntegrations={() => router.push("/integrations")}
++          onOpenSearch={() => router.push("/search")}
++        />
++      ) : null}
+       {organizeChat && organizeTarget ? (
+         <BotOrganizeModal
+           bot={organizeChat}
+diff --git a/apps/mobile/components/approval-settings-rows.tsx b/apps/mobile/components/approval-settings-rows.tsx
+index e29608b..c57d584 100644
+--- a/apps/mobile/components/approval-settings-rows.tsx
++++ b/apps/mobile/components/approval-settings-rows.tsx
+@@ -13,13 +13,17 @@ export function ApprovalModeRow({
+   approvals,
+   disabled = false,
+   leading,
++  title,
+ }: {
+   approvals: ApprovalSettings;
+   disabled?: boolean;
+   leading?: ReactNode;
++  /** The row's own wording, where the settings hub files it under another heading. */
++  title?: string;
+ }) {
+   const { t } = useLingui();
+   const { settings, pending, loadError } = approvals;
++  const label = title ?? t`Approvals`;
+   const choices: { key: ApprovalMode; label: string }[] = [
+     { key: "never", label: t`Never ask` },
+     // Auto needs an approval model; it stays listed while chosen so the choice is visible.
+@@ -49,7 +53,7 @@ export function ApprovalModeRow({
+         disabled={disabled}
+         leading={leading}
+         onPress={approvals.retry}
+-        title={t`Approvals`}
++        title={label}
+         value={t`Retry`}
+       />
+     );
+@@ -58,7 +62,7 @@ export function ApprovalModeRow({
+     <MenuPickerMenu
+       choices={choices}
+       disabled={held}
+-      label={t`Approvals`}
++      label={label}
+       onChange={(key) => {
+         const choice = choices.find((entry) => entry.key === key);
+         if (choice) void approvals.setMode(choice.key);
+@@ -70,14 +74,14 @@ export function ApprovalModeRow({
+           accessible
+           // Named explicitly, so the menu symbol isn't read out with the row.
+           accessibilityHint={detail}
+-          accessibilityLabel={t`Approvals`}
++          accessibilityLabel={label}
+           accessibilityRole="button"
+           accessibilityState={{ disabled: held }}
+           accessibilityValue={current ? { text: current } : undefined}
+           detail={detail}
+           dimmed={pending}
+           leading={leading}
+-          title={t`Approvals`}
++          title={label}
+           trailing={
+             <NativeSymbol
+               android="chevron-expand"
+diff --git a/apps/mobile/components/home-bottom-bar.tsx b/apps/mobile/components/home-bottom-bar.tsx
+new file mode 100644
+index 0000000..49ac426
+--- /dev/null
++++ b/apps/mobile/components/home-bottom-bar.tsx
+@@ -0,0 +1,150 @@
++import Animated, { FadeInUp } from "react-native-reanimated";
++import { StyleSheet, Text, View } from "react-native";
++import { useSafeAreaInsets } from "react-native-safe-area-context";
++import { mobileTokens } from "../lib/appearance";
++import { native, useThemedStyles } from "../lib/native";
++import { GlassSurface } from "./glass-surface";
++import { NativeSymbol } from "./native-symbol";
++import { PressScale } from "./press-scale";
++
++/** Sits above the home indicator, clear of it by this much. */
++const DOCK_GAP = 10;
++
++/**
++ * The bar that floats over the bottom of the home screen: the button that opens the app
++ * connections on one side, the search pill on the other, and the activity switch between them.
++ * Everything is drawn here, so it is the app's own press feedback rather than the system's.
++ */
++export function HomeBottomBar({
++  activityMode,
++  onToggleActivity,
++  onOpenIntegrations,
++  onOpenSearch,
++}: {
++  activityMode: boolean;
++  onToggleActivity: () => void;
++  onOpenIntegrations: () => void;
++  onOpenSearch: () => void;
++}) {
++  const styles = useThemedStyles(createBottomBarStyles);
++  const tokens = mobileTokens();
++  const insets = useSafeAreaInsets();
++  return (
++    <Animated.View
++      entering={FadeInUp.duration(240)}
++      pointerEvents="box-none"
++      style={[styles.dock, { paddingBottom: Math.max(insets.bottom, DOCK_GAP) }]}
++    >
++      <GlassSurface
++        fallbackStyle={styles.circleFill}
++        shape="circle"
++        style={styles.circle}
++      >
++        <PressScale
++          accessibilityLabel="连接应用"
++          accessibilityRole="button"
++          hitSlop={6}
++          onPress={onOpenIntegrations}
++          style={styles.buttonInner}
++        >
++          <NativeSymbol ios="square.grid.2x2" android="grid-outline" size={20} />
++        </PressScale>
++      </GlassSurface>
++      <GlassSurface
++        fallbackStyle={styles.circleFill}
++        shape="circle"
++        style={styles.circle}
++        tint={activityMode ? tokens.primary : undefined}
++      >
++        <PressScale
++          accessibilityLabel="活动"
++          accessibilityRole="button"
++          accessibilityState={{ selected: activityMode }}
++          hitSlop={6}
++          onPress={onToggleActivity}
++          style={styles.buttonInner}
++        >
++          <NativeSymbol
++            ios={activityMode ? "bell.fill" : "bell"}
++            android={activityMode ? "notifications" : "notifications-outline"}
++            size={18}
++            color={activityMode ? tokens.primaryForeground : tokens.foreground}
++          />
++        </PressScale>
++      </GlassSurface>
++      <View style={styles.spacer} />
++      <GlassSurface
++        fallbackStyle={styles.pillFill}
++        shape="capsule"
++        style={styles.pill}
++      >
++        <PressScale accessibilityRole="button" onPress={onOpenSearch} style={styles.pillInner}>
++          <View style={styles.pillContent}>
++            <NativeSymbol ios="magnifyingglass" android="search" size={16} />
++            <Text style={styles.pillLabel}>搜索</Text>
++          </View>
++        </PressScale>
++      </GlassSurface>
++    </Animated.View>
++  );
++}
++
++/** The space the bar takes off the list, so its last row clears the bar. */
++export const HOME_BOTTOM_BAR_HEIGHT = 55 + DOCK_GAP;
++
++function createBottomBarStyles() {
++  const tokens = mobileTokens();
++  return StyleSheet.create({
++    dock: {
++      position: "absolute",
++      left: 16,
++      right: 16,
++      bottom: 0,
++      flexDirection: "row",
++      alignItems: "center",
++      gap: 10,
++    },
++    circle: {
++      width: 50,
++      height: 50,
++      alignItems: "center",
++      justifyContent: "center",
++    },
++    circleFill: {
++      borderRadius: 25,
++      backgroundColor: native.fillPressed,
++    },
++    buttonInner: {
++      width: 50,
++      height: 50,
++      alignItems: "center",
++      justifyContent: "center",
++    },
++    spacer: {
++      flex: 1,
++    },
++    pill: {
++      height: 50,
++      justifyContent: "center",
++      paddingHorizontal: 4,
++    },
++    pillFill: {
++      borderRadius: 25,
++      backgroundColor: native.fillPressed,
++    },
++    pillInner: {
++      height: 50,
++      justifyContent: "center",
++    },
++    pillContent: {
++      flexDirection: "row",
++      alignItems: "center",
++      gap: 7,
++      paddingHorizontal: 14,
++    },
++    pillLabel: {
++      color: tokens.mutedForeground,
++      fontSize: 15,
++    },
++  });
++}
+diff --git a/apps/mobile/components/home-hero.tsx b/apps/mobile/components/home-hero.tsx
+new file mode 100644
+index 0000000..eab1611
+--- /dev/null
++++ b/apps/mobile/components/home-hero.tsx
+@@ -0,0 +1,113 @@
++import type { SpaceBot } from "@rakazo/contracts";
++import { isRunWorking } from "@rakazo/core";
++import { Pressable, StyleSheet, Text, View } from "react-native";
++import { mobileTokens, resolveMobileAppearance } from "../lib/appearance";
++import type { MobileBot } from "../lib/mobile-types";
++import { native, useThemedStyles } from "../lib/native";
++import { previewSnippet } from "../lib/preview";
++import { BotAvatar } from "./bot-avatar";
++import { FALLBACK_COLOR } from "./inbox-rows";
++
++/**
++ * The bot the home screen puts first, the way a chat app centres its one main character: a large
++ * avatar, its name with a state dot, and the first words of its last message. Everything else
++ * stays a list row below.
++ */
++export function HomeHero({
++  bot,
++  onOpen,
++}: {
++  bot: MobileBot | SpaceBot;
++  onOpen: (bot: MobileBot | SpaceBot) => void;
++}) {
++  const styles = useThemedStyles(createHeroStyles);
++  const tokens = mobileTokens();
++  const working = isRunWorking(bot.status);
++  const preview = previewSnippet(bot.preview ?? "", 64);
++  const dotColor = working ? tokens.workingDot : bot.unread ? tokens.unread : null;
++  const state = working ? "正在处理" : bot.unread ? "有新消息" : null;
++  return (
++    <View style={styles.hero}>
++      <Pressable
++        accessible
++        accessibilityLabel={[bot.name, state, preview].filter(Boolean).join(", ")}
++        accessibilityHint="打开与主 Bot 的对话"
++        accessibilityRole="button"
++        onPress={() => onOpen(bot)}
++        style={({ pressed }) => [styles.heroButton, pressed && styles.heroPressed]}
++      >
++        <BotAvatar
++          avatarSet={bot.avatarSet}
++          color={bot.color || FALLBACK_COLOR}
++          identity={bot.id}
++          motion="lazy"
++          size={88}
++          status={bot.status}
++        />
++        <View style={styles.nameRow}>
++          <Text numberOfLines={1} style={styles.name}>
++            {bot.name}
++          </Text>
++          {dotColor ? <View style={[styles.stateDot, { backgroundColor: dotColor }]} /> : null}
++        </View>
++        {preview ? (
++          <Text numberOfLines={1} style={[styles.preview, bot.unread && styles.previewUnread]}>
++            {preview}
++          </Text>
++        ) : null}
++      </Pressable>
++    </View>
++  );
++}
++
++export function createHeroStyles() {
++  const tokens = mobileTokens();
++  const appearance = resolveMobileAppearance();
++  return StyleSheet.create({
++    hero: {
++      alignItems: "center",
++      paddingTop: 6,
++      paddingBottom: 18,
++      paddingHorizontal: 20,
++    },
++    heroButton: {
++      alignItems: "center",
++      gap: 8,
++      paddingHorizontal: 16,
++      paddingVertical: 8,
++      borderRadius: 28,
++      borderCurve: "continuous",
++      maxWidth: "100%",
++    },
++    heroPressed: {
++      opacity: 0.7,
++    },
++    nameRow: {
++      flexDirection: "row",
++      alignItems: "center",
++      gap: 6,
++      maxWidth: "100%",
++    },
++    name: {
++      color: native.label,
++      fontSize: 17,
++      fontWeight: "600",
++      writingDirection: "auto",
++    },
++    stateDot: {
++      width: 7,
++      height: 7,
++      borderRadius: 3.5,
++    },
++    preview: {
++      color: appearance === "light" ? tokens.mutedForeground : native.secondaryLabel,
++      fontSize: 14,
++      textAlign: "center",
++      writingDirection: "auto",
++    },
++    previewUnread: {
++      color: native.label,
++      fontWeight: "500",
++    },
++  });
++}
+diff --git a/apps/mobile/components/inbox-header.tsx b/apps/mobile/components/inbox-header.tsx
+index 4fe7d6d..60db132 100644
+--- a/apps/mobile/components/inbox-header.tsx
++++ b/apps/mobile/components/inbox-header.tsx
+@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
+ import type { ReactNode } from "react";
+ import { Platform, Pressable, Text, View } from "react-native";
+ import { useSafeAreaInsets } from "react-native-safe-area-context";
+-import { mobileTokens, resolveMobileAppearance } from "../lib/appearance";
++import { resolveMobileAppearance } from "../lib/appearance";
+ import type { CreateAction } from "../lib/create-chooser";
+ import { createMenuActions, isCreateAction } from "../lib/create-chooser";
+ import { useThemedStyles } from "../lib/native";
+@@ -18,22 +18,17 @@ import { NativeSymbol } from "./native-symbol";
+  */
+ export function InboxHeader({
+   initials,
+-  activityMode,
+-  toggleActivityMode,
+   runCreateAction,
+   columnInsets,
+   title,
+   embedded = false,
+ }: {
+   initials: string;
+-  activityMode: boolean;
+-  toggleActivityMode: () => void;
+   runCreateAction: (action: CreateAction) => void;
+   columnInsets: { left: number; right: number };
+   title?: ReactNode;
+   embedded?: boolean;
+ }) {
+-  const tokens = mobileTokens();
+   const appearance = resolveMobileAppearance();
+   const styles = useThemedStyles(createHomeStyles);
+   const { t } = useLingui();
+@@ -62,26 +57,6 @@ export function InboxHeader({
+       </GlassSurface>
+       {title}
+       <GlassSurface style={styles.headerActions} fallbackStyle={styles.headerFill}>
+-        <HeaderButton
+-          accessibilityLabel={t`Activity`}
+-          active={activityMode}
+-          accent
+-          onPress={toggleActivityMode}
+-        >
+-          <NativeSymbol
+-            ios={activityMode ? "bell.fill" : "bell"}
+-            android={activityMode ? "notifications" : "notifications-outline"}
+-            size={17}
+-            color={activityMode ? tokens.primaryForeground : tokens.foreground}
+-          />
+-        </HeaderButton>
+-        <HeaderButton
+-          testID="home-search-button"
+-          accessibilityLabel={t`Search`}
+-          onPress={() => router.push("/search")}
+-        >
+-          <NativeSymbol ios="magnifyingglass" android="search" size={17} />
+-        </HeaderButton>
+         <MenuView
+           actions={createMenuActions(Platform.OS)}
+           {...(Platform.OS === "android" ? { style: { marginBottom: -CREATE_MENU_GAP } } : {})}
+diff --git a/apps/mobile/components/inbox-render-item.tsx b/apps/mobile/components/inbox-render-item.tsx
+index 882affd..f2f8875 100644
+--- a/apps/mobile/components/inbox-render-item.tsx
++++ b/apps/mobile/components/inbox-render-item.tsx
+@@ -238,6 +238,8 @@ export function useInboxRenderItem({
+   spaceBusy,
+   spaceRecoveryId,
+   toggleCollapsed,
++  mainBotId,
++  onSetMainBot,
+ }: Pick<
+   ChatActions,
+   | "botAction"
+@@ -267,6 +269,9 @@ export function useInboxRenderItem({
+   spaceBusy: boolean;
+   spaceRecoveryId: string | null;
+   toggleCollapsed: (key: string) => void;
++  /** The bot the home screen centres, so its row menu does not offer the same choice again. */
++  mainBotId?: string | null;
++  onSetMainBot: (bot: MobileBot | SpaceBot) => void;
+ }) {
+   const styles = useThemedStyles(createHomeStyles);
+   const { t } = useLingui();
+@@ -378,6 +383,17 @@ export function useInboxRenderItem({
+           onOrganize={organizeFromMenu}
+           onEditSection={editSectionFromMenu}
+           onSnooze={snoozeChat}
++          isMainBot={item.bot.id === mainBotId}
++          onSetMainBot={sharing ? undefined : onSetMainBot}
++          onOpenBotSettings={
++            sharing
++              ? undefined
++              : (bot) =>
++                  router.push({
++                    pathname: "/bot-settings",
++                    params: { botId: bot.id },
++                  })
++          }
+         />
+       );
+     },
+@@ -392,6 +408,8 @@ export function useInboxRenderItem({
+       now,
+       editSectionFromMenu,
+       groupAction,
++      mainBotId,
++      onSetMainBot,
+       spaceId,
+       openBot,
+       openGroup,
+diff --git a/apps/mobile/components/inbox-rows.tsx b/apps/mobile/components/inbox-rows.tsx
+index e1fb00a..01049cf 100644
+--- a/apps/mobile/components/inbox-rows.tsx
++++ b/apps/mobile/components/inbox-rows.tsx
+@@ -353,11 +353,18 @@ export function ChatSwipe({
+   onEditSection,
+   snoozed,
+   onSnooze,
++  isMainBot,
++  onSetMainBot,
++  onOpenBotSettings,
+   children,
+ }: {
+   /** Snoozed until a time still ahead. */
+   snoozed?: boolean;
+   onSnooze?: (until: string | null) => void;
++  /** Bots only: this one is already the hero, so the menu disables the entry. */
++  isMainBot?: boolean;
++  onSetMainBot?: () => void;
++  onOpenBotSettings?: () => void;
+   target:
+     | { kind: "bot"; chat: MobileBot | SpaceBot }
+     | { kind: "group"; chat: MobileGroup | SpaceGroup };
+@@ -395,6 +402,9 @@ export function ChatSwipe({
+       onEditSection={(mode) => onEditSection(kind, chat, mode, sections)}
+       snoozed={snoozed}
+       onSnooze={onSnooze}
++      isMainBot={target.kind === "bot" ? isMainBot : undefined}
++      onSetMainBot={target.kind === "bot" ? onSetMainBot : undefined}
++      onOpenBotSettings={target.kind === "bot" ? onOpenBotSettings : undefined}
+     >
+       {children}
+     </InboxSwipeRow>
+@@ -412,6 +422,9 @@ export const BotRow = memo(function BotRow({
+   onOrganize,
+   onEditSection,
+   onSnooze,
++  isMainBot,
++  onSetMainBot,
++  onOpenBotSettings,
+ }: {
+   bot: MobileBot | SpaceBot;
+   day: number;
+@@ -420,6 +433,10 @@ export const BotRow = memo(function BotRow({
+   onPress: (bot: MobileBot | SpaceBot) => void;
+   onLongPress?: (bot: MobileBot | SpaceBot) => void;
+   onAction?: (action: InboxRowAction, bot: MobileBot | SpaceBot) => void;
++  /** The row menu's star entry: this bot is the one the home screen centres. */
++  isMainBot?: boolean;
++  onSetMainBot?: (bot: MobileBot | SpaceBot) => void;
++  onOpenBotSettings?: (bot: MobileBot | SpaceBot) => void;
+ } & RowMenuProps) {
+   const { t } = useLingui();
+   const preview = previewSnippet(bot.preview, 40) || t`No messages yet`;
+@@ -478,6 +495,9 @@ export const BotRow = memo(function BotRow({
+       onEditSection={onEditSection}
+       snoozed={chatSnoozed(bot, now)}
+       onSnooze={onSnooze && ((until) => onSnooze("bot", bot, until))}
++      isMainBot={isMainBot}
++      onSetMainBot={onSetMainBot && (() => onSetMainBot(bot))}
++      onOpenBotSettings={onOpenBotSettings && (() => onOpenBotSettings(bot))}
+     >
+       {row}
+     </ChatSwipe>
+diff --git a/apps/mobile/components/inbox-swipe-row.ios.tsx b/apps/mobile/components/inbox-swipe-row.ios.tsx
+index 91a1bf4..f0b9f8d 100644
+--- a/apps/mobile/components/inbox-swipe-row.ios.tsx
++++ b/apps/mobile/components/inbox-swipe-row.ios.tsx
+@@ -57,6 +57,9 @@ export function InboxSwipeRow({
+   onEditSection,
+   snoozed,
+   onSnooze,
++  isMainBot,
++  onSetMainBot,
++  onOpenBotSettings,
+   children,
+ }: InboxSwipeRowProps) {
+   const { t, i18n } = useLingui();
+@@ -109,6 +112,20 @@ export function InboxSwipeRow({
+           <ContextMenu.Items>
+             {button(actions.leading, false)}
+             {button(pinned ? "unpin" : "pin", false)}
++            {onSetMainBot && !isMainBot ? (
++              <Button
++                label="设为主 Bot"
++                systemImage="star"
++                onPress={onSetMainBot}
++              />
++            ) : null}
++            {onOpenBotSettings ? (
++              <Button
++                label="Bot 设置"
++                systemImage="slider.horizontal.3"
++                onPress={onOpenBotSettings}
++              />
++            ) : null}
+             {notifyOnFinish === undefined ? null : (
+               <Button
+                 label={notifyOnFinish ? t`Silence notifications` : t`Resume notifications`}
+diff --git a/apps/mobile/components/inbox-swipe-row.tsx b/apps/mobile/components/inbox-swipe-row.tsx
+index 72b98c9..26eabac 100644
+--- a/apps/mobile/components/inbox-swipe-row.tsx
++++ b/apps/mobile/components/inbox-swipe-row.tsx
+@@ -20,6 +20,12 @@ export type InboxSwipeRowProps = {
+   snoozed?: boolean;
+   /** An ISO wake time, or null to unsnooze. Without it the menu offers no snooze. */
+   onSnooze?: (until: string | null) => void;
++  /** Bots only: whether this row is already the main bot, for the menu's wording. */
++  isMainBot?: boolean;
++  /** Bots only: makes this bot the one the home screen centres. */
++  onSetMainBot?: () => void;
++  /** Bots only: opens the bot's own settings. */
++  onOpenBotSettings?: () => void;
+   children: ReactElement;
+ };
+ 
+diff --git a/apps/mobile/components/model-picker-list.tsx b/apps/mobile/components/model-picker-list.tsx
+index 2038fde..ac3f660 100644
+--- a/apps/mobile/components/model-picker-list.tsx
++++ b/apps/mobile/components/model-picker-list.tsx
+@@ -3,25 +3,27 @@ import { withConnectionName } from "@rakazo/contracts";
+ import type { ChatModelChoice } from "@rakazo/core";
+ import { groupModelChoices, modelChoiceSearchText } from "@rakazo/core";
+ import { useNavigation } from "expo-router";
+-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef } from "react";
++import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+ import type { ListViewToken } from "react-native";
+ import {
+   AccessibilityInfo,
+   ActivityIndicator,
+   Platform,
++  Pressable,
+   SectionList,
+   StyleSheet,
+   Text,
+   View,
+ } from "react-native";
+ import { CallKeyboardContext } from "../lib/call-keyboard-context";
++import { modelCountLabel } from "../lib/count-label";
+ import { useContentBottomInset } from "../lib/content-bottom-inset";
+ import { useFloatingHeaderInset } from "../lib/floating-header";
+ import { native, useThemedStyles } from "../lib/native";
+ import { useSideInsets } from "../lib/side-insets";
+ import { useListSearch } from "../lib/use-list-search";
+ import { ListSearchInput } from "./list-search-input";
+-import { Checkmark } from "./row-accessories";
++import { Checkmark, Chevron } from "./row-accessories";
+ import { SettingsLabel, SettingsRow } from "./settings-group";
+ import { TextOnlyMark } from "./text-only-mark";
+ 
+@@ -61,6 +63,16 @@ export function ModelPickerList({
+     target: null as { sectionIndex: number; itemIndex: number; key: string } | null,
+   });
+   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
++  // Provider groups fold away by hand; a search shows everything it matches.
++  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
++  const toggleSection = useCallback((key: string) => {
++    setCollapsed((current) => {
++      const next = new Set(current);
++      if (next.has(key)) next.delete(key);
++      else next.add(key);
++      return next;
++    });
++  }, []);
+   const cancelInitialScroll = useCallback(() => {
+     initialScroll.current.cancelled = true;
+     if (retry.current !== null) clearTimeout(retry.current);
+@@ -105,7 +117,6 @@ export function ModelPickerList({
+         : undefined,
+     });
+   }, [navigation, t, changeQuery, showSearch]);
+-
+   const sections = useMemo(() => {
+     if (!choices) return [];
+     const models = groupModelChoices(
+@@ -114,6 +125,8 @@ export function ModelPickerList({
+     ).map((section) => ({
+       ...section,
+       connect: false,
++      // The count survives a fold, when the rendered section carries no rows.
++      total: section.data.length,
+       heading:
+         providerLabel && section.heading === providerLabel
+           ? undefined
+@@ -129,6 +142,13 @@ export function ModelPickerList({
+       ? [...models, { key: "connect", heading: undefined, connect: true, data: connect }]
+       : models;
+   }, [choices, visible, providerLabel]);
++  // A folded group keeps its header, so its count still says what is inside.
++  const shownSections = useMemo(() => {
++    if (query || collapsed.size === 0) return sections;
++    return sections.map((section) =>
++      collapsed.has(section.key) ? { ...section, data: [] as ChatModelChoice[] } : section,
++    );
++  }, [sections, collapsed, query]);
+   useLayoutEffect(() => {
+     const state = initialScroll.current;
+     if (state.handled || state.cancelled || choices === null) return;
+@@ -218,15 +238,27 @@ export function ModelPickerList({
+       contentInsetAdjustmentBehavior={headerInset > 0 ? "never" : "automatic"}
+       keyboardDismissMode="on-drag"
+       keyboardShouldPersistTaps="handled"
+-      sections={sections}
++      sections={shownSections}
+       stickySectionHeadersEnabled={false}
+-      renderSectionHeader={({ section }) =>
+-        section.heading ? (
+-          <View style={styles.sectionHeading}>
++      renderSectionHeader={({ section }) => {
++        if (!section.heading) return null;
++        const folded = collapsed.has(section.key) && !query;
++        // The count is what makes a folded group readable: it keeps the models inside in view.
++        const total = (section as { total?: number }).total ?? section.data.length;
++        return (
++          <Pressable
++            accessibilityLabel={`${section.heading}, ${modelCountLabel(total)}`}
++            accessibilityRole="button"
++            accessibilityState={{ expanded: !folded }}
++            onPress={() => toggleSection(section.key)}
++            style={styles.sectionHeading}
++          >
++            <Chevron expanded={!folded} />
+             <SettingsLabel>{section.heading}</SettingsLabel>
+-          </View>
+-        ) : null
+-      }
++            <Text style={styles.sectionCount}>{modelCountLabel(total)}</Text>
++          </Pressable>
++        );
++      }}
+       renderSectionFooter={() => <View style={styles.sectionGap} />}
+       keyExtractor={(choice) => choice.key || "space-default"}
+       ItemSeparatorComponent={() => (
+@@ -286,7 +318,8 @@ function createStyles() {
+   return StyleSheet.create({
+     screen: { flex: 1, backgroundColor: native.page },
+     content: { paddingHorizontal: 16 },
+-    sectionHeading: { paddingBottom: 7 },
++    sectionHeading: { paddingBottom: 7, flexDirection: "row", alignItems: "center", gap: 6 },
++    sectionCount: { color: native.tertiaryLabel, fontSize: 12 },
+     sectionGap: { height: 20 },
+     trailing: { flexDirection: "row", alignItems: "center", gap: 10 },
+     cell: { backgroundColor: native.fill, overflow: "hidden" },
+diff --git a/apps/mobile/components/model-providers.tsx b/apps/mobile/components/model-providers.tsx
+index dbf8d46..f49ec86 100644
+--- a/apps/mobile/components/model-providers.tsx
++++ b/apps/mobile/components/model-providers.tsx
+@@ -1,5 +1,4 @@
+ import type { MenuAction } from "@expo/ui/community/menu";
+-import { plural } from "@lingui/core/macro";
+ import { useLingui } from "@lingui/react/macro";
+ import type { ModelCatalogEntry, ModelCredential } from "@rakazo/contracts";
+ import {
+@@ -9,6 +8,8 @@ import {
+ } from "@rakazo/contracts";
+ import { connectionModels } from "@rakazo/core";
+ import { Alert, Platform } from "react-native";
++import { modelCountLabel } from "../lib/count-label";
++import { providerDisplayName } from "../lib/model-provider-label";
+ import { RowMenu } from "./model-role-settings";
+ import { SettingsGroup, SettingsRow } from "./settings-group";
+ 
+@@ -29,12 +30,16 @@ export function ModelProviders({
+   onDisconnect: (credential: ModelCredential) => void;
+ }) {
+   const { t } = useLingui();
+-  const modelCount = (count: number) => t`${plural(count, { one: "# model", other: "# models" })}`;
++  // Built here rather than through an ICU plural: an untranslated template would print raw.
++  const modelCount = modelCountLabel;
+   const providerName = (credential: ModelCredential) =>
+-    catalog.find(
+-      (entry) =>
+-        canonicalPiProviderId(entry.provider) === canonicalPiProviderId(credential.provider),
+-    )?.providerName ?? credential.provider;
++    providerDisplayName(
++      credential.provider,
++      catalog.find(
++        (entry) =>
++          canonicalPiProviderId(entry.provider) === canonicalPiProviderId(credential.provider),
++      )?.providerName ?? credential.provider,
++    );
+   const rows = credentials
+     .map((credential) => {
+       const provider = providerName(credential);
+diff --git a/apps/mobile/components/native-inbox-list.ios.tsx b/apps/mobile/components/native-inbox-list.ios.tsx
+index 844dc2b..1fab3e9 100644
+--- a/apps/mobile/components/native-inbox-list.ios.tsx
++++ b/apps/mobile/components/native-inbox-list.ios.tsx
+@@ -113,6 +113,7 @@ export function NativeInboxList<Item>({
+   onRefresh,
+   signals,
+   showJumpPills,
++  bottomInset = 0,
+ }: NativeInboxListProps<Item>) {
+   const hostRef = useRef(null);
+   const headerInset = useFloatingHeaderInset();
+@@ -187,7 +188,7 @@ export function NativeInboxList<Item>({
+       )}
+       {spacer(
+         "bottom",
+-        headerInset > 0 ? bottom + 32 : 32,
++        (headerInset > 0 ? bottom + 32 : 32) + bottomInset,
+         onGeometryChange(({ width }) => {
+           if (width > 0) setRowWidth((current) => (current === width ? current : width));
+         }),
+diff --git a/apps/mobile/components/native-inbox-list.tsx b/apps/mobile/components/native-inbox-list.tsx
+index 323ebb9..e284fec 100644
+--- a/apps/mobile/components/native-inbox-list.tsx
++++ b/apps/mobile/components/native-inbox-list.tsx
+@@ -21,6 +21,8 @@ export type NativeInboxListProps<Item> = {
+   /** Unread and attention counts by row, for the pills that jump to rows out of view. */
+   signals: readonly InboxSignal[];
+   showJumpPills: boolean;
++  /** Extra space below the last row, for a bar floating over the list. */
++  bottomInset?: number;
+ };
+ 
+ /** iOS only: other platforms keep the FlatList inbox. */
+diff --git a/apps/mobile/components/peer-receipt-line.tsx b/apps/mobile/components/peer-receipt-line.tsx
+index 77d119d..fa3aefe 100644
+--- a/apps/mobile/components/peer-receipt-line.tsx
++++ b/apps/mobile/components/peer-receipt-line.tsx
+@@ -1,10 +1,10 @@
+-import { plural } from "@lingui/core/macro";
+ import { useLingui } from "@lingui/react/macro";
+ import type { BotAvatarSet } from "@rakazo/contracts";
+ import { splitPeerLabel } from "@rakazo/core";
+ import type { PressableProps } from "react-native";
+ import { Pressable, StyleSheet, Text } from "react-native";
+ import { mobileTokens } from "../lib/appearance";
++import { messagesWithLabel } from "../lib/count-label";
+ import { useThemedStyles } from "../lib/native";
+ import { BotAvatar } from "./bot-avatar";
+ 
+@@ -35,7 +35,7 @@ export function PeerReceiptLine({
+   const peer = peerBotName;
+   const label =
+     count > 1
+-      ? t`${plural(count, { one: `# message with ${peer}`, other: `# messages with ${peer}` })}`
++      ? messagesWithLabel(count, peer)
+       : direction === "sent"
+         ? t`Messaged ${peer}`
+         : t`Message from ${peer}`;
+diff --git a/apps/mobile/components/press-scale.tsx b/apps/mobile/components/press-scale.tsx
+new file mode 100644
+index 0000000..2ee0d04
+--- /dev/null
++++ b/apps/mobile/components/press-scale.tsx
+@@ -0,0 +1,59 @@
++import type { ReactNode } from "react";
++import type { PressableProps, StyleProp, ViewStyle } from "react-native";
++import { Pressable } from "react-native";
++import Animated, {
++  useAnimatedStyle,
++  useReducedMotion,
++  useSharedValue,
++  withSpring,
++  withTiming,
++} from "react-native-reanimated";
++
++/** How long a press takes to settle in, then the spring that lets it back out. */
++const PRESS_IN_MS = 90;
++const RELEASE_SPRING = { duration: 320, dampingRatio: 0.75 } as const;
++const RESTING_SCALE = 0.96;
++const RESTING_OPACITY = 0.92;
++
++/**
++ * A press that answers back: the control shrinks a hair while held and springs back on release.
++ *
++ * Only for buttons the app draws itself. A SwiftUI row, a native button or a `GlassSurface` with
++ * its own system feedback already answers a touch, and a second spring under it reads as a stutter.
++ */
++export function PressScale({
++  children,
++  containerStyle,
++  scaleTo = RESTING_SCALE,
++  ...props
++}: PressableProps & {
++  children: ReactNode;
++  /** Layout for the animated wrapper, which is what occupies space in the row. */
++  containerStyle?: StyleProp<ViewStyle>;
++  /** The smallest scale a press reaches, for tighter or larger controls. */
++  scaleTo?: number;
++}) {
++  const held = useSharedValue(0);
++  const reduceMotion = useReducedMotion();
++  const style = useAnimatedStyle(() => ({
++    opacity: 1 - held.value * (1 - RESTING_OPACITY),
++    transform: [{ scale: 1 - held.value * (1 - scaleTo) }],
++  }));
++  return (
++    <Animated.View style={[containerStyle, style]}>
++      <Pressable
++        {...props}
++        onPressIn={(event) => {
++          if (!reduceMotion) held.value = withTiming(1, { duration: PRESS_IN_MS });
++          props.onPressIn?.(event);
++        }}
++        onPressOut={(event) => {
++          held.value = reduceMotion ? 0 : withSpring(0, RELEASE_SPRING);
++          props.onPressOut?.(event);
++        }}
++      >
++        {children}
++      </Pressable>
++    </Animated.View>
++  );
++}
+diff --git a/apps/mobile/components/scenario-model-slots.tsx b/apps/mobile/components/scenario-model-slots.tsx
+new file mode 100644
+index 0000000..8c19d46
+--- /dev/null
++++ b/apps/mobile/components/scenario-model-slots.tsx
+@@ -0,0 +1,200 @@
++import type { ModelCatalogEntry, ModelCredential, ThinkingLevel } from "@rakazo/contracts";
++import {
++  connectionDisplayName,
++  connectedBackupOptions,
++  modelRoleChoiceKey,
++  withConnectionName,
++} from "@rakazo/contracts";
++import { catalogEntryFor, connectionForModelChoice } from "@rakazo/core";
++import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
++import type { ModelPickerRequest } from "../lib/model-picker-selection";
++import {
++  getScenarioModels,
++  loadScenarioModels,
++  SCENARIO_DEFAULT_THINKING,
++  type ScenarioSlotId,
++  saveScenarioModel,
++  subscribeScenarioModels,
++} from "../lib/scenario-models";
++import { MenuPicker } from "./menu-picker";
++import { SettingsGroup, SettingsRow } from "./settings-group";
++
++/** The slots 日常帮助 does not cover: 日常帮助 is the server's main model, on its own screen. */
++const SLOTS: { id: ScenarioSlotId; title: string; hint: string }[] = [
++  { id: "fast", title: "快速解答", hint: "秒回接话、闲聊与新 Bot 自我介绍" },
++  { id: "code", title: "代码与分析", hint: "编程、排障与逻辑分析" },
++  { id: "heavy", title: "高难任务", hint: "长链路规划与复杂工具执行" },
++  { id: "image", title: "生图模型", hint: "画图与修图，不经过思考" },
++  { id: "video", title: "生视频模型", hint: "生成视频，不经过思考" },
++];
++
++const THINKING_SLOTS: ScenarioSlotId[] = ["fast", "code", "heavy"];
++
++const LEVELS: { level: ThinkingLevel; label: string }[] = [
++  { level: "off", label: "关闭" },
++  { level: "minimal", label: "极简" },
++  { level: "low", label: "低" },
++  { level: "medium", label: "中" },
++  { level: "high", label: "高" },
++  { level: "xhigh", label: "更高" },
++  { level: "max", label: "极限" },
++];
++
++const DEFAULT_CHOICE = "default";
++
++function levelLabel(level: ThinkingLevel): string {
++  return LEVELS.find((entry) => entry.level === level)?.label ?? level;
++}
++
++/**
++ * The scenario slots the person can point at their own models: 快速解答, 代码与分析, 高难任务,
++ * 生图 and 生视频. Choices are kept on the device (with the default thinking level each slot
++ * recommends) and read back through `scenarioModelsForRouting` by the router.
++ */
++export function ScenarioModelSlots({
++  catalog,
++  credentials,
++  userId,
++  spaceId,
++  openPicker,
++}: {
++  catalog: ModelCatalogEntry[];
++  credentials: ModelCredential[];
++  userId: string;
++  spaceId: string;
++  openPicker: (request: ModelPickerRequest) => void;
++}) {
++  const choices = useSyncExternalStore(subscribeScenarioModels, getScenarioModels, getScenarioModels);
++
++  useEffect(() => {
++    if (userId) void loadScenarioModels(userId, spaceId);
++  }, [userId, spaceId]);
++
++  const options = useMemo(() => connectedBackupOptions(catalog, credentials), [catalog, credentials]);
++  const optionByKey = useMemo(
++    () => new Map(options.map((option) => [modelRoleChoiceKey(option), option])),
++    [options],
++  );
++
++  const modelLabel = useCallback(
++    (provider: string, modelId: string) =>
++      catalogEntryFor(catalog, provider, modelId)?.label ?? modelId,
++    [catalog],
++  );
++  const connectionLabel = useCallback(
++    (provider: string, modelId: string) => {
++      const entry = catalogEntryFor(catalog, provider, modelId);
++      const name = entry?.providerName ?? provider;
++      const connection = connectionForModelChoice(credentials, { provider, modelId });
++      return connection ? connectionDisplayName(connection, name) : name;
++    },
++    [catalog, credentials],
++  );
++
++  const pick = (slot: ScenarioSlotId, title: string, withThinking: boolean) => {
++    const current = choices[slot];
++    const currentKey = current
++      ? modelRoleChoiceKey({
++          provider: current.provider,
++          modelId: current.modelId,
++          ...(current.credentialId ? { credentialId: current.credentialId } : {}),
++        })
++      : "";
++    openPicker({
++      title,
++      selectedKey: currentKey,
++      emptyMessage: "没有匹配的模型",
++      choices: [
++        {
++          key: "clear",
++          label: "跟随日常帮助",
++          modelLabel: "跟随日常帮助",
++        },
++        ...options.map((option) => ({
++          key: modelRoleChoiceKey(option),
++          label: withConnectionName(option.label, option.connectionName),
++          modelLabel: option.label,
++          providerLabel: option.connectionName,
++          provider: option.provider,
++          modelId: option.modelId,
++        })),
++      ],
++      onSelect: (choice) => {
++        if (choice.key === "clear") {
++          void saveScenarioModel(userId, spaceId, slot, null);
++          return;
++        }
++        const option = optionByKey.get(choice.key);
++        if (!option) return;
++        void saveScenarioModel(userId, spaceId, slot, {
++          provider: option.provider,
++          modelId: option.modelId,
++          ...(option.credentialId ? { credentialId: option.credentialId } : {}),
++          // A new model starts on the slot's own thinking default.
++          ...(withThinking && current?.thinkingLevel !== undefined
++            ? { thinkingLevel: current.thinkingLevel }
++            : {}),
++        });
++      },
++    });
++  };
++
++  const setThinking = (slot: ScenarioSlotId, key: string) => {
++    const current = choices[slot];
++    if (!current) return;
++    void saveScenarioModel(userId, spaceId, slot, {
++      ...current,
++      thinkingLevel: key === DEFAULT_CHOICE ? null : (key as ThinkingLevel),
++    });
++  };
++
++  const thinkingChoices = (slot: ScenarioSlotId) => [
++    {
++      key: DEFAULT_CHOICE,
++      label: `默认（${levelLabel(SCENARIO_DEFAULT_THINKING[slot] ?? "off")}）`,
++    },
++    ...LEVELS.map((entry) => ({ key: entry.level, label: entry.label })),
++  ];
++
++  return (
++    <>
++      <SettingsGroup label="场景模型">
++        {SLOTS.map((slot) => {
++          const chosen = choices[slot.id];
++          const detail = chosen
++            ? `${modelLabel(chosen.provider, chosen.modelId)} · ${connectionLabel(chosen.provider, chosen.modelId)}`
++            : `${slot.hint} · 未选时跟随日常帮助`;
++          return (
++            <SettingsRow
++              key={slot.id}
++              accessibilityRole="button"
++              chevron="right"
++              title={slot.title}
++              detail={detail}
++              onPress={() => pick(slot.id, slot.title, Boolean(SCENARIO_DEFAULT_THINKING[slot.id]))}
++            />
++          );
++        })}
++      </SettingsGroup>
++      <SettingsGroup
++        label="思考强度"
++        footer="保持默认即可；不支持思考的模型会自动忽略该设置。"
++      >
++        {THINKING_SLOTS.map((slot) => {
++          const chosen = choices[slot];
++          const title = SLOTS.find((entry) => entry.id === slot)?.title ?? slot;
++          return (
++            <MenuPicker
++              key={slot}
++              label={title}
++              choices={thinkingChoices(slot)}
++              value={chosen?.thinkingLevel ?? DEFAULT_CHOICE}
++              disabled={!chosen}
++              onChange={(key) => setThinking(slot, key)}
++            />
++          );
++        })}
++      </SettingsGroup>
++    </>
++  );
++}
+diff --git a/apps/mobile/components/thread-composer.tsx b/apps/mobile/components/thread-composer.tsx
+index 91025cc..c5620a0 100644
+--- a/apps/mobile/components/thread-composer.tsx
++++ b/apps/mobile/components/thread-composer.tsx
+@@ -46,6 +46,7 @@ import { useMobileTokens, useResolvedAppearance } from "../lib/native";
+ import type { ComposerSnapshot } from "../lib/thread-feedback";
+ import { BotAvatar } from "./bot-avatar";
+ import { GlassSurface } from "./glass-surface";
++import { PressScale } from "./press-scale";
+ import { NativeSymbol } from "./native-symbol";
+ 
+ type NativeEdit = {
+@@ -848,13 +849,14 @@ export function ThreadComposer({
+               </GlassSurface>
+             </Pressable>
+           ) : (
+-            <Pressable
++            <PressScale
+               accessibilityRole="button"
+               accessibilityLabel={t`Send`}
++              containerStyle={{ marginBottom: pillInset, opacity: sendBlocked ? 0.5 : 1 }}
+               disabled={sendBlocked}
+               hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+               onPress={() => void send()}
+-              style={{ marginBottom: pillInset, opacity: sendBlocked ? 0.5 : 1 }}
++              scaleTo={0.92}
+             >
+               <GlassSurface
+                 tint={tokens.primary}
+@@ -868,7 +870,7 @@ export function ThreadComposer({
+                   color={tokens.primaryForeground}
+                 />
+               </GlassSurface>
+-            </Pressable>
++            </PressScale>
+           )}
+         </GlassSurface>
+       </View>
+diff --git a/apps/mobile/lib/count-label.ts b/apps/mobile/lib/count-label.ts
+new file mode 100644
+index 0000000..8cae3d8
+--- /dev/null
++++ b/apps/mobile/lib/count-label.ts
+@@ -0,0 +1,28 @@
++import { getActiveUiLocale } from "./i18n";
++
++/**
++ * Counts with their noun, written out instead of through an ICU plural template. A catalog that
++ * never received the template renders its source verbatim — `{count, plural, one {# model} other
++ * {# models}}` in the middle of the provider list — so these strings are built here, where the
++ * number is always substituted.
++ */
++function formatCount(count: number): string {
++  return new Intl.NumberFormat().format(count);
++}
++
++function isChinese(): boolean {
++  const locale = getActiveUiLocale();
++  return locale === "zh-CN" || locale === "zh-TW";
++}
++
++/** "8 个模型" / "8 models". */
++export function modelCountLabel(count: number): string {
++  if (isChinese()) return `${formatCount(count)} 个模型`;
++  return count === 1 ? "1 model" : `${formatCount(count)} models`;
++}
++
++/** "3 条与 Grok 的消息" / "3 messages with Grok". */
++export function messagesWithLabel(count: number, peer: string): string {
++  if (isChinese()) return `${formatCount(count)} 条与 ${peer} 的消息`;
++  return count === 1 ? `1 message with ${peer}` : `${formatCount(count)} messages with ${peer}`;
++}
+diff --git a/apps/mobile/lib/main-bot.ts b/apps/mobile/lib/main-bot.ts
+new file mode 100644
+index 0000000..1d27eda
+--- /dev/null
++++ b/apps/mobile/lib/main-bot.ts
+@@ -0,0 +1,64 @@
++import * as SecureStore from "expo-secure-store";
++
++/**
++ * The bot shown at the top of the home screen. Rakazo keeps a bot's pinned state on the server but
++ * has no "main bot", so this choice stays on the device, per account and Space.
++ */
++const listeners = new Set<() => void>();
++let mainBotId: string | null = null;
++let loadedKey: string | null = null;
++
++function notify(): void {
++  for (const listener of listeners) listener();
++}
++
++function keyFor(userId: string, spaceId: string): string {
++  return `rakazo.main-bot.${userId}.${spaceId}`;
++}
++
++export function getMainBotId(): string | null {
++  return mainBotId;
++}
++
++export function subscribeMainBot(listener: () => void): () => void {
++  listeners.add(listener);
++  return () => {
++    listeners.delete(listener);
++  };
++}
++
++export async function loadMainBot(userId: string, spaceId: string): Promise<string | null> {
++  const key = keyFor(userId, spaceId);
++  if (key === loadedKey) return mainBotId;
++  loadedKey = key;
++  try {
++    mainBotId = await SecureStore.getItemAsync(key);
++  } catch {
++    mainBotId = null;
++  }
++  notify();
++  return mainBotId;
++}
++
++export async function setMainBot(userId: string, spaceId: string, botId: string): Promise<void> {
++  const key = keyFor(userId, spaceId);
++  loadedKey = key;
++  mainBotId = botId;
++  notify();
++  try {
++    await SecureStore.setItemAsync(key, botId);
++  } catch {
++    // SecureStore is unavailable on some hosts; the choice stays for this session.
++  }
++}
++
++/**
++ * The bot the home screen puts first: the chosen one while it is still in the list, else the first
++ * chat, so a deleted or archived main bot never leaves the hero empty.
++ */
++export function resolveMainBot<T extends { id: string }>(
++  bots: readonly T[],
++  chosenId: string | null = mainBotId,
++): T | undefined {
++  return bots.find((bot) => bot.id === chosenId) ?? bots[0];
++}
+diff --git a/apps/mobile/lib/model-provider-label.ts b/apps/mobile/lib/model-provider-label.ts
+new file mode 100644
+index 0000000..aea2f9d
+--- /dev/null
++++ b/apps/mobile/lib/model-provider-label.ts
+@@ -0,0 +1,22 @@
++import { OPENAI_COMPATIBLE_PROVIDER_ID } from "@rakazo/contracts";
++
++/**
++ * A third-party OpenAI-compatible server is the entry most people add by hand, so it is named for
++ * what it is rather than after the wire protocol. It stays Chinese in every locale, the way the
++ * provider names the catalog sends are not translated either.
++ */
++export const THIRD_PARTY_COMPATIBLE_NAME = "OpenAI 兼容（第三方）";
++
++/**
++ * The name the app shows for a provider. The plain compatible entry — no hosted endpoint preset —
++ * reads as the third-party one; a preset keeps the name the catalog gives it.
++ */
++export function providerDisplayName(
++  provider: string,
++  name: string,
++  hasEndpointPreset = false,
++): string {
++  return provider === OPENAI_COMPATIBLE_PROVIDER_ID && !hasEndpointPreset
++    ? THIRD_PARTY_COMPATIBLE_NAME
++    : name;
++}
+diff --git a/apps/mobile/lib/scenario-models.ts b/apps/mobile/lib/scenario-models.ts
+new file mode 100644
+index 0000000..9316e5c
+--- /dev/null
++++ b/apps/mobile/lib/scenario-models.ts
+@@ -0,0 +1,163 @@
++import type { ThinkingLevel } from "@rakazo/contracts";
++import * as SecureStore from "expo-secure-store";
++
++/**
++ * The scenario slots that belong to no server role: the server still knows main, approval and
++ * computer-use, so these live on the device and are handed to the router through
++ * `scenarioRoutingSnapshot`. 日常帮助 is the server's main model and keeps its own screen, and
++ * 审批 has its own role too.
++ */
++export type ScenarioSlotId = "fast" | "code" | "heavy" | "image" | "video";
++
++export const SCENARIO_SLOT_IDS: readonly ScenarioSlotId[] = ["fast", "code", "heavy", "image", "video"];
++
++/** The thinking level a slot runs at until the person picks another one. */
++export const SCENARIO_DEFAULT_THINKING: Record<ScenarioSlotId, ThinkingLevel | null> = {
++  // Answers in the first second: thinking would only delay the first token.
++  fast: "minimal",
++  code: "medium",
++  heavy: "high",
++  // Pictures and video have no reasoning to spend.
++  image: null,
++  video: null,
++};
++
++/** Slots that show a thinking control; a picture or a video has nothing to think about. */
++export function scenarioHasThinking(slot: ScenarioSlotId): boolean {
++  return SCENARIO_DEFAULT_THINKING[slot] !== null;
++}
++
++export type ScenarioModelChoice = {
++  provider: string;
++  modelId: string;
++  credentialId?: string;
++  /** Unset means the slot's own default in `SCENARIO_DEFAULT_THINKING`. */
++  thinkingLevel?: ThinkingLevel | null;
++};
++
++export type ScenarioModels = Partial<Record<ScenarioSlotId, ScenarioModelChoice>>;
++
++/** A slot as the router reads it: its own model, or the daily model it falls back to. */
++export type ResolvedScenarioSlot = {
++  model: ScenarioModelChoice;
++  thinkingLevel: ThinkingLevel | null;
++  /** Where the model came from: the slot's own choice, or 日常帮助's. */
++  source: "slot" | "daily";
++};
++
++let state: ScenarioModels = {};
++let storageKey: string | null = null;
++const listeners = new Set<() => void>();
++
++function notify(): void {
++  for (const listener of listeners) listener();
++}
++
++function keyFor(userId: string, spaceId: string): string {
++  return `rakazo.scenario-models.${userId}.${spaceId}`;
++}
++
++export function getScenarioModels(): ScenarioModels {
++  return state;
++}
++
++export function subscribeScenarioModels(listener: () => void): () => void {
++  listeners.add(listener);
++  return () => {
++    listeners.delete(listener);
++  };
++}
++
++function parse(raw: string | null): ScenarioModels {
++  if (!raw) return {};
++  try {
++    const parsed: unknown = JSON.parse(raw);
++    if (!parsed || typeof parsed !== "object") return {};
++    const next: ScenarioModels = {};
++    for (const slot of SCENARIO_SLOT_IDS) {
++      const value = (parsed as Record<string, unknown>)[slot];
++      if (!value || typeof value !== "object") continue;
++      const entry = value as Record<string, unknown>;
++      if (typeof entry.provider !== "string" || typeof entry.modelId !== "string") continue;
++      if (!entry.provider || !entry.modelId) continue;
++      next[slot] = {
++        provider: entry.provider,
++        modelId: entry.modelId,
++        ...(typeof entry.credentialId === "string" ? { credentialId: entry.credentialId } : {}),
++        ...(typeof entry.thinkingLevel === "string"
++          ? { thinkingLevel: entry.thinkingLevel as ThinkingLevel }
++          : {}),
++      };
++    }
++    return next;
++  } catch {
++    return {};
++  }
++}
++
++/** Reads this account's and Space's slots once; a later call for the same pair reuses them. */
++export async function loadScenarioModels(userId: string, spaceId: string): Promise<ScenarioModels> {
++  const key = keyFor(userId, spaceId);
++  if (key === storageKey) return state;
++  storageKey = key;
++  try {
++    state = parse(await SecureStore.getItemAsync(key));
++  } catch {
++    state = {};
++  }
++  notify();
++  return state;
++}
++
++export async function saveScenarioModel(
++  userId: string,
++  spaceId: string,
++  slot: ScenarioSlotId,
++  choice: ScenarioModelChoice | null,
++): Promise<void> {
++  const key = keyFor(userId, spaceId);
++  const next: ScenarioModels = { ...state };
++  if (choice) next[slot] = choice;
++  else delete next[slot];
++  state = next;
++  storageKey = key;
++  notify();
++  try {
++    if (Object.keys(next).length === 0) await SecureStore.deleteItemAsync(key);
++    else await SecureStore.setItemAsync(key, JSON.stringify(next));
++  } catch {
++    // SecureStore is unavailable on some hosts; the choice stays for this session.
++  }
++}
++
++/** The level a slot runs at: its own choice, else the slot's default. */
++export function scenarioThinkingLevel(
++  slot: ScenarioSlotId,
++  choice: ScenarioModelChoice | undefined,
++): ThinkingLevel | null {
++  if (choice?.thinkingLevel !== undefined) return choice.thinkingLevel;
++  return SCENARIO_DEFAULT_THINKING[slot];
++}
++
++/**
++ * Every slot as the router needs it, with the slots that name no model following 日常帮助. The
++ * backend's intent router can read this once it takes per-slot settings; until then the app keeps
++ * it here rather than writing fields the server does not accept yet.
++ */
++export function scenarioRoutingSnapshot(
++  daily: ScenarioModelChoice | null,
++): Record<ScenarioSlotId, ResolvedScenarioSlot | null> {
++  const resolve = (slot: ScenarioSlotId): ResolvedScenarioSlot | null => {
++    const own = state[slot];
++    if (own) return { model: own, thinkingLevel: scenarioThinkingLevel(slot, own), source: "slot" };
++    if (!daily) return null;
++    return { model: daily, thinkingLevel: scenarioThinkingLevel(slot, undefined), source: "daily" };
++  };
++  return {
++    fast: resolve("fast"),
++    code: resolve("code"),
++    heavy: resolve("heavy"),
++    image: resolve("image"),
++    video: resolve("video"),
++  };
++}
+diff --git a/apps/mobile/lib/use-home-header.ts b/apps/mobile/lib/use-home-header.ts
+index acc1e15..23b4bce 100644
+--- a/apps/mobile/lib/use-home-header.ts
++++ b/apps/mobile/lib/use-home-header.ts
+@@ -6,14 +6,12 @@ import type { CreateAction } from "./create-chooser";
+ import { createMenuItems } from "./create-chooser";
+ import { useUiLocale } from "./i18n";
+ 
+-/** Liquid Glass home header: account on the left; activity, search and create on the right. */
++/** Liquid Glass home header: the account on the left, one create button on the right. */
+ export function useHomeHeader({
+   nativeHeader,
+   ready,
+   hasSession,
+   initials,
+-  activityMode,
+-  toggleActivityMode,
+   runCreateAction,
+   headerTitle,
+ }: {
+@@ -21,8 +19,6 @@ export function useHomeHeader({
+   ready: boolean;
+   hasSession: boolean;
+   initials: string;
+-  activityMode: boolean;
+-  toggleActivityMode: () => void;
+   runCreateAction: (action: CreateAction) => void;
+   headerTitle?: () => ReactNode;
+ }) {
+@@ -48,23 +44,8 @@ export function useHomeHeader({
+           onPress: () => router.push("/account"),
+         },
+       ],
++      // One clean circular button: activity and search live in the bar above the home indicator.
+       unstable_headerRightItems: () => [
+-        {
+-          type: "button" as const,
+-          label: t`Activity`,
+-          accessibilityLabel: t`Activity`,
+-          icon: { type: "sfSymbol" as const, name: activityMode ? "bell.fill" : "bell" },
+-          selected: activityMode,
+-          onPress: toggleActivityMode,
+-        },
+-        {
+-          type: "button" as const,
+-          label: t`Search`,
+-          accessibilityLabel: t`Search`,
+-          identifier: "home-search-button",
+-          icon: { type: "sfSymbol" as const, name: "magnifyingglass" },
+-          onPress: () => router.push("/search"),
+-        },
+         {
+           type: "menu" as const,
+           label: t`Create`,
+@@ -87,8 +68,6 @@ export function useHomeHeader({
+     ready,
+     hasSession,
+     initials,
+-    activityMode,
+-    toggleActivityMode,
+     runCreateAction,
+     headerTitle,
+     router,
