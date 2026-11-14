@@ -1,5 +1,5 @@
 diff --git a/apps/mobile/app/(settings)/model-connection.tsx b/apps/mobile/app/(settings)/model-connection.tsx
-index 9ac425f..dcd3591 100644
+index 9ac425f..4e55308 100644
 --- a/apps/mobile/app/(settings)/model-connection.tsx
 +++ b/apps/mobile/app/(settings)/model-connection.tsx
 @@ -4,6 +4,7 @@ import type { ModelApiProtocol, ModelHeaderRow, ThinkingLevel } from "@rakazo/co
@@ -108,7 +108,7 @@ index 9ac425f..dcd3591 100644
    async function disconnectCredential() {
      if (!selected || !credential) return;
      cancelOAuth();
-@@ -367,29 +389,51 @@ export default function ModelConnection() {
+@@ -367,29 +389,55 @@ export default function ModelConnection() {
  
    async function connectKey() {
      if (!selected) return;
@@ -146,6 +146,10 @@ index 9ac425f..dcd3591 100644
 +          if (discovered.length) {
 +            saveModelIds = discovered.slice(0, MAX_ENABLED_MODEL_IDS);
 +            saveModelId = saveModelId.trim() || (saveModelIds[0] ?? "");
++          } else if (!saveModelId.trim()) {
++            // Nothing to import and no model named: there is nothing to connect yet.
++            publishFeedback("connection", { error: t`Server found. Enter a model name.` });
++            return;
 +          }
 +        } catch (err) {
 +          // A server that cannot list its models can still be saved with a typed model id.
@@ -179,7 +183,7 @@ index 9ac425f..dcd3591 100644
        const saved = await rpc("models/connect", connect.input, {
          timeoutMs: MODEL_CONNECT_TIMEOUT_MS,
        });
-@@ -447,6 +491,16 @@ export default function ModelConnection() {
+@@ -447,6 +495,16 @@ export default function ModelConnection() {
      setShowAdvanced((visible) => !visible);
    }
  
@@ -196,7 +200,7 @@ index 9ac425f..dcd3591 100644
    const savedHeaderEndpointMatches = savedCompatibleEndpointMatches(baseUrl, credential?.baseUrl);
    const visibleHeaderRows =
      headerRows ??
-@@ -517,6 +571,7 @@ export default function ModelConnection() {
+@@ -517,6 +575,7 @@ export default function ModelConnection() {
              editable={!busy}
              importantForAutofill="no"
              onChangeText={updateApiKey}
@@ -204,7 +208,7 @@ index 9ac425f..dcd3591 100644
              placeholder={
                credential?.hasKey
                  ? t`Paste a replacement key`
-@@ -681,6 +736,7 @@ export default function ModelConnection() {
+@@ -681,6 +740,7 @@ export default function ModelConnection() {
                    editable={!busy}
                    importantForAutofill="no"
                    onChangeText={updateApiKey}
@@ -212,7 +216,7 @@ index 9ac425f..dcd3591 100644
                    placeholder={credential?.hasKey ? t`Paste a replacement key` : t`sk-…`}
                    placeholderTextColor={native.tertiaryLabel}
                    secureTextEntry
-@@ -775,8 +831,10 @@ export default function ModelConnection() {
+@@ -775,8 +835,10 @@ export default function ModelConnection() {
    return (
      <SafeAreaView edges={["bottom"]} style={styles.screen}>
        <ScrollView
