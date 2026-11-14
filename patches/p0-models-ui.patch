@@ -1,8 +1,16 @@
 diff --git a/apps/mobile/app/(settings)/model-connection.tsx b/apps/mobile/app/(settings)/model-connection.tsx
-index 9ac425f..da98f3e 100644
+index 9ac425f..dcd3591 100644
 --- a/apps/mobile/app/(settings)/model-connection.tsx
 +++ b/apps/mobile/app/(settings)/model-connection.tsx
-@@ -22,7 +22,15 @@ import {
+@@ -4,6 +4,7 @@ import type { ModelApiProtocol, ModelHeaderRow, ThinkingLevel } from "@rakazo/co
+ import {
+   compatibleEndpointPresets,
+   connectionDisplayName,
++  MAX_ENABLED_MODEL_IDS,
+   matchCompatibleEndpointPreset,
+   modelHeadersInput,
+   modelRoutingForm,
+@@ -22,7 +23,15 @@ import {
    savedCompatibleModelIds,
  } from "@rakazo/core";
  import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
@@ -19,7 +27,7 @@ index 9ac425f..da98f3e 100644
  import {
    AccessibilityInfo,
    ActivityIndicator,
-@@ -41,11 +49,13 @@ import { ConnectionModelList } from "../../components/connection-model-list";
+@@ -41,11 +50,13 @@ import { ConnectionModelList } from "../../components/connection-model-list";
  import { DisclosureRow } from "../../components/model-connection-fields";
  import { createModelsStyles } from "../../components/model-connection-styles";
  import { NativeActionButton } from "../../components/native-action-button";
@@ -33,7 +41,7 @@ index 9ac425f..da98f3e 100644
  import { native, useThemedStyles } from "../../lib/native";
  import { ACCOUNT_SETTINGS, settingsRpc } from "../../lib/settings-target";
  import { useListSearch } from "../../lib/use-list-search";
-@@ -61,6 +71,8 @@ type FeedbackAnchor = "probe" | "model" | "connection";
+@@ -61,6 +72,8 @@ type FeedbackAnchor = "probe" | "model" | "connection";
  /** Connects or manages one provider for the model list that opened it. */
  export default function ModelConnection() {
    const styles = useThemedStyles(createModelsStyles);
@@ -42,7 +50,7 @@ index 9ac425f..da98f3e 100644
    const router = useRouter();
    const navigation = useNavigation();
    const { requestId = "" } = useLocalSearchParams<{ requestId?: string }>();
-@@ -241,11 +253,13 @@ export default function ModelConnection() {
+@@ -241,11 +254,13 @@ export default function ModelConnection() {
      }, [cancelInFlightWork, load]),
    );
  
@@ -57,7 +65,121 @@ index 9ac425f..da98f3e 100644
    const selectedProviderLabel = credential
      ? connectionDisplayName(credential, providerName)
      : (endpointPreset?.name ?? providerName);
-@@ -447,6 +461,16 @@ export default function ModelConnection() {
+@@ -316,17 +331,7 @@ export default function ModelConnection() {
+     await modelProbe.probe({
+       baseUrl,
+       apiKey,
+-      request: (input) =>
+-        rpc(
+-          "models/probeOpenAiCompatible",
+-          {
+-            ...input,
+-            apiProtocol,
+-            headers: modelHeadersInput(headerRows),
+-            credentialId: credential?.id,
+-          },
+-          { timeoutMs: MODEL_CONNECT_TIMEOUT_MS },
+-        ),
++      request: (input) => probeEndpointModels(input),
+       onSuccess: (models) => {
+         setModelId(modelId.trim() || models[0] || "");
+         publishFeedback("probe", {
+@@ -345,6 +350,23 @@ export default function ModelConnection() {
+     });
+   }
+ 
++  /** The models this endpoint serves; the form's own key and headers go with the request. */
++  async function probeEndpointModels(input: {
++    baseUrl: string;
++    apiKey?: string;
++  }): Promise<{ models: string[] }> {
++    return rpc(
++      "models/probeOpenAiCompatible",
++      {
++        ...input,
++        apiProtocol,
++        headers: modelHeadersInput(headerRows),
++        credentialId: credential?.id,
++      },
++      { timeoutMs: MODEL_CONNECT_TIMEOUT_MS },
++    );
++  }
++
+   async function disconnectCredential() {
+     if (!selected || !credential) return;
+     cancelOAuth();
+@@ -367,29 +389,51 @@ export default function ModelConnection() {
+ 
+   async function connectKey() {
+     if (!selected) return;
+-    const connect = modelConnectRequest({
+-      form: {
+-        apiKey,
+-        modelId,
+-        enabledModelIds,
+-        baseUrl,
+-        apiProtocol,
+-        headerRows,
+-        thinkingLevel,
+-        accountId,
+-        gatewayId,
+-      },
+-      selected,
+-      credential,
+-      credentialId: credentialIdRef.current,
+-      makeDefault: { makeDefault, scope: target.scope },
+-    });
+-    if (connect.status === "incomplete") return;
+     Keyboard.dismiss();
+     clearFeedback();
+-    const { savingWithoutKey, activeModelId } = connect;
+     setPending("connect");
+     try {
++      // A third-party server is connected once, not model by model: a save that has no model list
++      // yet asks the endpoint what it serves and enables every model it names. A list on screen
++      // is the person's own choice and is saved as it stands.
++      let saveModelId = modelId;
++      let saveModelIds = enabledModelIds;
++      if (isOpenAiCompatible && enabledModelIds.length === 0) {
++        try {
++          const discovered = (await probeEndpointModels({ baseUrl, apiKey })).models;
++          if (discovered.length) {
++            saveModelIds = discovered.slice(0, MAX_ENABLED_MODEL_IDS);
++            saveModelId = saveModelId.trim() || (saveModelIds[0] ?? "");
++          }
++        } catch (err) {
++          // A server that cannot list its models can still be saved with a typed model id.
++          if (!saveModelId.trim()) {
++            publishFeedback("connection", {
++              error: errorText(err, t`Could not reach this model server`),
++            });
++            return;
++          }
++        }
++      }
++      const connect = modelConnectRequest({
++        form: {
++          apiKey,
++          modelId: saveModelId,
++          enabledModelIds: saveModelIds,
++          baseUrl,
++          apiProtocol,
++          headerRows,
++          thinkingLevel,
++          accountId,
++          gatewayId,
++        },
++        selected,
++        credential,
++        credentialId: credentialIdRef.current,
++        makeDefault: { makeDefault, scope: target.scope },
++      });
++      if (connect.status === "incomplete") return;
++      const { savingWithoutKey, activeModelId } = connect;
+       const saved = await rpc("models/connect", connect.input, {
+         timeoutMs: MODEL_CONNECT_TIMEOUT_MS,
+       });
+@@ -447,6 +491,16 @@ export default function ModelConnection() {
      setShowAdvanced((visible) => !visible);
    }
  
@@ -74,7 +196,7 @@ index 9ac425f..da98f3e 100644
    const savedHeaderEndpointMatches = savedCompatibleEndpointMatches(baseUrl, credential?.baseUrl);
    const visibleHeaderRows =
      headerRows ??
-@@ -517,6 +541,7 @@ export default function ModelConnection() {
+@@ -517,6 +571,7 @@ export default function ModelConnection() {
              editable={!busy}
              importantForAutofill="no"
              onChangeText={updateApiKey}
@@ -82,7 +204,7 @@ index 9ac425f..da98f3e 100644
              placeholder={
                credential?.hasKey
                  ? t`Paste a replacement key`
-@@ -681,6 +706,7 @@ export default function ModelConnection() {
+@@ -681,6 +736,7 @@ export default function ModelConnection() {
                    editable={!busy}
                    importantForAutofill="no"
                    onChangeText={updateApiKey}
@@ -90,7 +212,7 @@ index 9ac425f..da98f3e 100644
                    placeholder={credential?.hasKey ? t`Paste a replacement key` : t`sk-…`}
                    placeholderTextColor={native.tertiaryLabel}
                    secureTextEntry
-@@ -775,8 +801,10 @@ export default function ModelConnection() {
+@@ -775,8 +831,10 @@ export default function ModelConnection() {
    return (
      <SafeAreaView edges={["bottom"]} style={styles.screen}>
        <ScrollView
